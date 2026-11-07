@@ -218,3 +218,10 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+.agents/
+artifacts/
+*.secrets.json
+third_party/
+recordings/
+docs/
+scripts/

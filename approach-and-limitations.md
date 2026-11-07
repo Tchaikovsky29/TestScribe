@@ -1,0 +1,7 @@
+# Approach and limitations
+
+TestScribe accepts a starting URL and a plain-English test case. BharatCode Qwen turns the case into a short action plan and requested checks. Before each action, Playwright captures the current page's accessibility snapshot; large pages are narrowed to relevant named regions. The model chooses a role and accessible name from that observation. The runner requires exactly one live target, performs the action, and evaluates the requested outcome in the browser. A JSON report records the result, actions, checks, timing, and failure evidence.
+
+The same code ran a PHPTRAVELS storefront check, a Selenium form check and deliberate failure, and a public login demo. The PHPTRAVELS customer-login case was blocked because its test supplied no login method or credentials. These are individual demonstrations, not proof of general reliability.
+
+The model can misread instructions, invent a target, or choose a check that is too weak. Generic option matching can combine words from separate controls. Dynamic pages may need longer waits. Visual-only interfaces, CAPTCHA, iframes, downloads, and complex multi-page workflows are outside this version's tested scope. Failure traces can contain typed values and should be treated as sensitive local artifacts. The free Gemini configuration passed the prepared positive and false cases in single live runs, but its reliability has not been measured across repeated runs or unseen sites.
