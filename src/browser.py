@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 import re
+import subprocess
 from typing import Any
 from playwright.sync_api import BrowserContext, Locator, Page
 
@@ -11,10 +12,47 @@ class TargetError(Exception):
 STOP_WORDS = {"a", "an", "as", "at", "by", "for", "in", "is", "of", "on", "the", "to", "with"}
 ROLES = {"button", "link", "textbox", "combobox", "checkbox", "radio", "tab", "menuitem", "option"}
 ACTIONS = {"click", "fill", "select", "press", "navigate"}
+URL_PATTERN = re.compile(r"https?://[^\s<>\"']+")
 
 
 def _terms(value: str) -> set[str]:
     return {word for word in re.findall(r"[a-z0-9]+", value.lower()) if word not in STOP_WORDS}
+
+
+def explicit_urls(case: str) -> set[str]:
+    """Extract literal HTTP URLs supplied in the test case."""
+    return {match.rstrip(".,;!?)]}") for match in URL_PATTERN.findall(case)}
+
+
+def check_url_exists(url: str) -> int:
+    """Check a user-provided URL with cURL before opening it in Chromium."""
+    if not url.startswith(("https://", "http://")):
+        raise TargetError("Navigation requires an HTTP(S) URL")
+    base = [
+        "curl", "--location", "--silent", "--show-error",
+        "--output", "/dev/null", "--write-out", "%{http_code}",
+        "--max-time", "10", "--max-redirs", "5",
+        "--proto", "=http,https", "--proto-redir", "=http,https",
+    ]
+
+    def request(options: list[str]) -> subprocess.CompletedProcess[str]:
+        try:
+            return subprocess.run(
+                base + options + ["--url", url],
+                capture_output=True, text=True, timeout=12, check=False,
+            )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            raise TargetError(f"cURL could not check {url}: {exc}") from exc
+
+    result = request(["--head"])
+    if result.stdout.strip() in {"403", "405", "501"}:
+        # Some sites refuse HEAD even though a browser GET succeeds.
+        result = request(["--range", "0-0", "--max-filesize", "1048576"])
+    status = result.stdout.strip()
+    if result.returncode not in {0, 63} or not status.isdigit() or not 200 <= int(status) < 400:
+        detail = result.stderr.strip().splitlines()[-1] if result.stderr.strip() else f"HTTP {status or 'unknown'}"
+        raise TargetError(f"URL preflight failed for {url}: {detail}")
+    return int(status)
 
 
 def observe(page: Page, intent: str, budget: int = 8000) -> str:
@@ -24,7 +62,28 @@ def observe(page: Page, intent: str, budget: int = 8000) -> str:
     if len(snapshot) <= budget:
         return header + "PAGE SNAPSHOT:\n" + snapshot
 
+    # The main content can be huge, but navigation is essential for moving between pages.
+    banners = [item for item in page.get_by_role("banner").all() if item.is_visible()]
+    if banners:
+        nav_snapshot = banners[0].aria_snapshot()
+    else:
+        navigation = page.get_by_role("navigation").all()
+        nav_snapshot = "\n".join(item.aria_snapshot() for item in navigation if item.is_visible())
+    navigation_context = "PAGE HEADER AND NAVIGATION:\n" + nav_snapshot[:min(3000, budget // 2)] + "\n"
+
     intent_terms = _terms(intent)
+    matching_controls: list[tuple[int, str]] = []
+    for line in snapshot.splitlines():
+        if not re.search(r'\b(?:button|link|tab|menuitem|option|combobox|textbox) "', line):
+            continue
+        score = len(intent_terms & _terms(line))
+        if score:
+            matching_controls.append((score, line.strip()))
+    matching_controls.sort(key=lambda item: item[0], reverse=True)
+    matching_context = "MATCHING CONTROLS:\n" + "\n".join(
+        dict.fromkeys(line for _, line in matching_controls[:15])
+    )[:1200] + "\n"
+
     regions: list[tuple[int, str, str]] = []
     for region in page.get_by_role("region").all():
         region_snapshot = region.aria_snapshot()
@@ -42,8 +101,8 @@ def observe(page: Page, intent: str, budget: int = 8000) -> str:
         return header + "PAGE SNAPSHOT (bounded):\n" + snapshot[:budget]
 
     regions.sort(key=lambda item: item[0], reverse=True)
-    outline = "\n".join(f"- {name}" for _, name, _ in regions)
-    material = header + "PAGE SECTIONS:\n" + outline + "\nRELEVANT SECTIONS:\n"
+    outline = "\n".join(f"- {name}" for _, name, _ in regions)[:1200]
+    material = header + navigation_context + matching_context + "PAGE SECTIONS:\n" + outline + "\nRELEVANT SECTIONS:\n"
     used = len(material)
     added = 0
     for score, name, region_snapshot in regions:
@@ -68,10 +127,11 @@ def resolve_target(page: Page, role: str, name: str, section: str | None = None)
         raise TargetError("Target has no name")
     scope: Page | Locator = page
     if section:
-        region = page.get_by_role("region", name=section, exact=True)
-        if region.count() != 1:
-            raise TargetError(f"Section {section!r} matched {region.count()} regions")
-        scope = region
+        candidates = [page.get_by_role(kind, name=section, exact=True) for kind in ("region", "navigation", "dialog", "form")]
+        counts = [candidate.count() for candidate in candidates]
+        if sum(counts) != 1:
+            raise TargetError(f"Section {section!r} matched {sum(counts)} named containers")
+        scope = candidates[counts.index(1)]
     pattern = re.compile(re.escape(name), re.IGNORECASE)
     locator = scope.get_by_role(role, name=pattern)
     count = locator.count()
@@ -88,6 +148,7 @@ def execute_action(
     context: BrowserContext,
     action: dict[str, Any],
     variables: dict[str, str],
+    case: str,
 ) -> tuple[Page, str]:
     kind = action.get("action")
     if kind not in ACTIONS:
@@ -96,10 +157,13 @@ def execute_action(
         url = action.get("url")
         if not isinstance(url, str) or not url.startswith(("https://", "http://")):
             raise TargetError("Navigate action requires an HTTP(S) URL")
+        if url not in explicit_urls(case):
+            raise TargetError("Navigation URL was not explicitly supplied in the test case; use a page control")
         if url.rstrip("/") == page.url.rstrip("/"):
             raise TargetError("Navigation would leave the browser on the same page")
+        http_status = check_url_exists(url)
         page.goto(url, wait_until="domcontentloaded", timeout=30000)
-        return page, f"Navigated to {page.url}"
+        return page, f"Navigated to {page.url} after cURL HTTP {http_status}"
 
     role = action.get("role")
     name = action.get("name")
@@ -110,6 +174,7 @@ def execute_action(
         raise TargetError("Section must be a string")
     locator = resolve_target(page, role, name, section)
     before_pages = len(context.pages)
+    before_url = page.url
     if kind == "click":
         if locator.get_attribute("target") == "_blank":
             with context.expect_page(timeout=15000) as popup_info:
@@ -118,6 +183,9 @@ def execute_action(
             page.wait_for_load_state("domcontentloaded", timeout=15000)
         else:
             locator.click(timeout=10000)
+        if page.url != before_url:
+            # Client-side routers can update the address before replacing page content.
+            page.wait_for_timeout(600)
     elif kind == "fill":
         value = action.get("value")
         if not isinstance(value, str):
@@ -131,6 +199,9 @@ def execute_action(
         value = action.get("value")
         if not isinstance(value, str):
             raise TargetError("Select action requires a value")
+        tag = locator.evaluate("element => element.tagName.toLowerCase()")
+        if tag != "select":
+            raise TargetError(f"select requires a native <select>, but {role} {name!r} is <{tag}>; click the menu control and option instead")
         locator.select_option(label=value, timeout=10000)
     elif kind == "press":
         key = action.get("key")

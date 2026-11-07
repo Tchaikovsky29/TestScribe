@@ -11,7 +11,7 @@ from typing import Any
 from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import Page, sync_playwright
 
-from src.browser import TargetError, execute_action, observe
+from src.browser import TargetError, check_url_exists, execute_action, explicit_urls, observe
 from src.model import ModelClient, ModelError
 
 
@@ -45,9 +45,13 @@ Example: "Enter Alex into Name, submit, verify Thanks appears" becomes
 ACTION_SYSTEM = """You choose ONE browser action for the current intent using only the current-page observation.
 Return only a JSON object. For an element action use:
 {"action":"click|fill|select|press","role":"button|link|textbox|combobox|checkbox|radio|tab|menuitem|option",
- "name":"words from the observed accessible name","section":"optional exact named region",
+ "name":"words from the observed accessible name","section":"optional exact named region or navigation",
  "value":"text for fill/select","key":"Enter for press"}
-For explicit navigation use {"action":"navigate","url":"https://..."}.
+Click the observed links and buttons to navigate around the site. Click a menu control,
+then click its visible menu item. Use select ONLY for a native HTML <select> element.
+When MATCHING CONTROLS contains a button or link with the requested words, click it.
+Use {"action":"navigate","url":"https://..."} only when the ORIGINAL TEST contains
+that exact URL. Never infer a path or URL from a page label.
 Use the observed role/name and a section only when it helps make the target unique.
 For icon-prefixed names, the meaningful words can be used (for example Login).
 If the intent asks for a credential placeholder, return the placeholder as value; do not invent a secret.
@@ -137,6 +141,10 @@ def choose_action(
     history: list[dict[str, str]],
     feedback: str = "",
 ) -> dict[str, Any]:
+    if re.match(r"(?i)^\s*(?:open|go to|navigate to|click)\b", intent):
+        grounded_click = observed_click_for_intent(intent, observation)
+        if grounded_click:
+            return grounded_click
     prompt = (
         "ORIGINAL TEST: " + case + "\nCURRENT INTENT: " + intent
         + "\nRECENT ACTIONS: " + json.dumps(history[-3:])
@@ -147,7 +155,13 @@ def choose_action(
     for attempt in range(2):
         data = model.json_response(ACTION_SYSTEM, prompt)
         if data.get("action") not in {"click", "fill", "select", "press", "navigate"}:
-            raise ModelError("Model proposed an unsupported action")
+            raise ModelError(f"Model proposed an unsupported action: {data.get('action')!r}")
+        if data["action"] == "navigate" and data.get("url") not in explicit_urls(case):
+            fallback = observed_click_for_intent(intent, observation)
+            if fallback:
+                return fallback
+            # The executor rejects this URL; the outer loop then waits and re-observes.
+            return data
         if (
             data["action"] == "fill"
             and "shown on the page" in case.lower()
@@ -160,6 +174,32 @@ def choose_action(
             raise ModelError("Model fill value was not found in the page observation")
         return data
     raise ModelError("Model could not choose a grounded action")
+
+
+def observed_click_for_intent(intent: str, observation: str) -> dict[str, str] | None:
+    """Find one observed control whose name covers the navigation intent."""
+    if "MATCHING CONTROLS:\n" not in observation:
+        return None
+    controls = observation.split("MATCHING CONTROLS:\n", 1)[1].split("\nPAGE SECTIONS:", 1)[0]
+    wanted = set(re.findall(r"[a-z0-9]+", intent.lower())) - {
+        "a", "an", "and", "at", "bar", "choose", "click", "dropdown", "from", "go",
+        "in", "menu", "navigate", "on", "open", "section", "select", "the", "to", "top",
+    }
+    if not wanted:
+        return None
+    ranked: list[tuple[int, str, str]] = []
+    for role, name in re.findall(r'\b(button|link|tab|menuitem|option) "([^"]+)"', controls):
+        score = len(wanted & set(re.findall(r"[a-z0-9]+", name.lower())))
+        if score == len(wanted):
+            ranked.append((score, role, name))
+    if not ranked:
+        return None
+    ranked = list(dict.fromkeys(ranked))
+    ranked.sort(reverse=True)
+    if len(ranked) > 1 and ranked[0][0] == ranked[1][0]:
+        return None
+    _, role, name = ranked[0]
+    return {"action": "click", "role": role, "name": name}
 
 
 def _any_visible(locator: Any) -> bool:
@@ -266,6 +306,7 @@ def run_case(
             and not re.search(r"\b(password|credential|single sign.on|sso)\b|\{\{", case, re.I)
         ):
             raise PlanError("Login method or credentials are not specified in the test case")
+        report["start_url_http_status"] = check_url_exists(url)
         plan = make_plan(model, url, case)
         report["plan"] = plan
         with sync_playwright() as playwright:
@@ -295,11 +336,12 @@ def run_case(
                         step = {"instruction": intent, "action": action["action"], "target": target}
                         report["steps"].append(step)
                         try:
-                            page, outcome = execute_action(page, context, action, variables)
+                            page, outcome = execute_action(page, context, action, variables, case)
                         except TargetError as exc:
                             step["outcome"] = f"Target rejected: {exc}"
                             if attempt == 0:
                                 feedback = str(exc)
+                                page.wait_for_timeout(600)
                                 continue
                             raise
                         step["outcome"] = outcome
