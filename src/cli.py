@@ -16,20 +16,29 @@ from src.runner import run_case
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(prog="testscribe")
+    parser = argparse.ArgumentParser(
+        prog="testscribe",
+        description="Run plain-English browser tests with Playwright.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     subparsers = parser.add_subparsers(dest="command", required=True)
-    run = subparsers.add_parser("run", help="Run one plain-English browser test")
+    run = subparsers.add_parser(
+        "run",
+        help="Run one plain-English browser test",
+    )
     run.add_argument("--url", required=True, help="Starting HTTP(S) URL")
     run.add_argument("--test", required=True, help="Plain-English test case")
-    run.add_argument("--model", default="qwen-3.8-27b")
-    run.add_argument("--base-url", default="https://bharatcode.ai/api/model/v1")
-    run.add_argument("--api-key-env", default="BHARATCODE_API_KEY")
+    run.add_argument("--model", default="qwen-3.8-27b", help="Model ID (default: %(default)s)")
+    run.add_argument("--base-url", default="https://bharatcode.ai/api/model/v1", help="OpenAI-compatible API base URL (default: %(default)s)")
+    run.add_argument("--api-key-env", default="BHARATCODE_API_KEY", help="API key environment variable (default: %(default)s)")
     run.add_argument("--vars-file", type=Path, help="Ignored local JSON object of placeholder values")
-    run.add_argument("--output-dir", type=Path)
+    run.add_argument("--output-dir", type=Path, help="Directory for reports and artifacts (default: artifacts/<timestamp>)")
     run.add_argument("--headed", action="store_true", help="Show the browser window")
     run.add_argument("--slow-mo", type=int, default=0, metavar="MS", help="Delay each browser action by this many milliseconds")
     run.add_argument("--hold-seconds", type=float, default=0, metavar="SECONDS", help="Keep the final page open before closing")
     run.add_argument("--record-video", action="store_true", help="Save browser page video in the output directory")
+    # Generate top-level help from the run parser so its flag list stays current.
+    parser.epilog = "Run command help:\n\n" + run.format_help()
     args = parser.parse_args()
 
     if not args.url.startswith(("https://", "http://")):
