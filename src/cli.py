@@ -15,7 +15,35 @@ from src.model import ModelClient
 from src.runner import run_case
 
 
+def show_vars_file_help() -> None:
+    help_parser = argparse.ArgumentParser(
+        prog="testscribe --vars-file",
+        usage="testscribe run --url URL --test CASE --vars-file PATH [other run options]",
+        description="Use a local JSON file to supply values for placeholders in a browser test.",
+        epilog=(
+            "Create demo.secrets.json:\n"
+            '  {"CUSTOMER_EMAIL": "customer@example.com", "CUSTOMER_PASSWORD": "your-password"}\n\n'
+            "Run a test:\n"
+            "  testscribe run --url https://example.com/login \\\n"
+            "    --test 'Log in with {{CUSTOMER_EMAIL}} and {{CUSTOMER_PASSWORD}}, then verify the dashboard is shown' \\\n"
+            "    --vars-file demo.secrets.json\n\n"
+            "The file must contain one JSON object with string keys and string values.\n"
+            "Placeholders are replaced when the runner fills browser fields.\n"
+            "The file is optional. Use a *.secrets.json name to keep it Git ignored.\n"
+            "Browser traces and reports may contain typed values."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        add_help=False,
+    )
+    help_parser.print_help()
+
+
 def main() -> None:
+    if sys.argv[1:] in (["--vars-file", "--help"], ["--vars-file", "-h"],
+                        ["run", "--vars-file", "--help"], ["run", "--vars-file", "-h"]):
+        show_vars_file_help()
+        return
+
     parser = argparse.ArgumentParser(
         prog="testscribe",
         description="Run plain-English browser tests with Playwright.",
@@ -38,7 +66,7 @@ def main() -> None:
     run.add_argument("--hold-seconds", type=float, default=0, metavar="SECONDS", help="Keep the final page open before closing")
     run.add_argument("--record-video", action="store_true", help="Save browser page video in the output directory")
     # Generate top-level help from the run parser so its flag list stays current.
-    parser.epilog = "Run command help:\n\n" + run.format_help()
+    parser.epilog = "Vars file guide: testscribe --vars-file --help\n\nRun command help:\n\n" + run.format_help()
     args = parser.parse_args()
 
     if not args.url.startswith(("https://", "http://")):

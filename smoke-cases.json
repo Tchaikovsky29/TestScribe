@@ -1,0 +1,17 @@
+[
+  {
+    "id": "phptravels-gateway-faq",
+    "url": "https://phptravels.com/demo",
+    "test": "Open Product, choose Technology, click See every supplier and gateway, open Which payment gateways are pre-integrated?, and verify that the answer contains 'Stripe, PayPal, xMoney, Fawaterk'."
+  },
+  {
+    "id": "selenium-form",
+    "url": "https://www.selenium.dev/selenium/web/web-form.html",
+    "test": "Enter MultiStep into Text input, enter DemoPassword into Password, select Two from Dropdown (select), submit the form, and verify Received! appears."
+  },
+  {
+    "id": "dynamic-elements",
+    "url": "https://the-internet.herokuapp.com/",
+    "test": "Open Add/Remove Elements, click Add Element, click Delete, click Add Element again, and verify a Delete button is visible."
+  }
+]

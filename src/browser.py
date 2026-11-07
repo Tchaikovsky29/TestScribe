@@ -132,7 +132,8 @@ def resolve_target(page: Page, role: str, name: str, section: str | None = None)
         if sum(counts) != 1:
             raise TargetError(f"Section {section!r} matched {sum(counts)} named containers")
         scope = candidates[counts.index(1)]
-    pattern = re.compile(re.escape(name), re.IGNORECASE)
+    # Playwright serializes this regex into a /.../ selector; escape the delimiter too.
+    pattern = re.compile(re.escape(name).replace("/", r"\/"), re.IGNORECASE)
     locator = scope.get_by_role(role, name=pattern)
     count = locator.count()
     if count == 0 and role in {"textbox", "combobox"}:
