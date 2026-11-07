@@ -1,6 +1,6 @@
 # Approach and limitations
 
-TestScribe accepts a starting URL and a plain-English test case. BharatCode Qwen turns the case into a short action plan and requested checks. Before each action, Playwright captures the current page's accessibility snapshot; large pages are narrowed to relevant named regions. The model chooses a role and accessible name from that observation. The runner requires exactly one live target, performs the action, and evaluates the requested outcome in the browser. A JSON report records the result, actions, checks, timing, and failure evidence.
+TestScribe accepts a starting URL and a plain-English test case. BharatCode Qwen turns the case into a short action plan and requested checks. Before each action, Playwright captures the current page's accessibility snapshot; large pages retain header navigation and narrow main content to relevant named regions. The model chooses a role and accessible name from that observation. The runner requires exactly one live target, performs the action, and evaluates the requested outcome in the browser. Direct navigation is limited to URLs written in the case and checked with cURL; the starting URL is checked too. A JSON report records the result, actions, checks, timing, and failure evidence.
 
 The same code ran a PHPTRAVELS storefront check, a Selenium form check and deliberate failure, and a public login demo. The PHPTRAVELS customer-login case was blocked because its test supplied no login method or credentials. These are individual demonstrations, not proof of general reliability.
 
