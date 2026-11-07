@@ -27,6 +27,9 @@ Return only one JSON object with:
 Preserve explicit expected words from the test. Include ONLY checks explicitly requested
 by the test. A URL check is allowed only when the test states the expected URL/path.
 The browser starts at START URL already; do not add a navigation action for it.
+Keep every explicit user interaction as a separate action in the stated order, even
+when a later control is already visible. For example, "Open Menu, choose Services"
+requires both "Open Menu" and "Choose Services"; do not skip the menu step.
 For a test that only says verify, produce no actions. Do not add scrolling or searching
 as actions; Playwright checks find elements throughout the page.
 Make a separate check for each distinct expected outcome joined by "and".
@@ -229,7 +232,7 @@ def check_once(page: Page, check: dict[str, str]) -> bool:
     if kind == "url_contains":
         return check["text"].lower() in page.url.lower()
     if kind == "role_visible":
-        locator = page.get_by_role(check["role"], name=re.compile(re.escape(check["name"]), re.I))
+        locator = page.get_by_role(check["role"], name=re.compile(re.escape(check["name"]).replace("/", r"\/"), re.I))
         return _any_visible(locator)
     if kind == "control_visible":
         return _control_visible(page, check["text"])

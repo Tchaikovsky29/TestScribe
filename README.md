@@ -44,6 +44,8 @@ testscribe run \
   --test 'Open the storefront from the demo page and verify a flight search option is shown.'
 ```
 
+Three four-action cases across PHPTRAVELS, Selenium's web form, and The Internet are listed in [`smoke-cases.json`](smoke-cases.json). Run any case by passing its `url` and `test` values to `testscribe run`. Results depend on the live sites and model responses.
+
 Gemini free-tier example:
 
 ```bash
@@ -55,7 +57,7 @@ testscribe run \
   --api-key-env GEMINI_API_KEY
 ```
 
-For credentials or other variables, create an ignored file such as `demo.secrets.json` containing a JSON object: `{"CUSTOMER_EMAIL":"...","CUSTOMER_PASSWORD":"..."}`. Refer to them in the test as `{{CUSTOMER_EMAIL}}` and `{{CUSTOMER_PASSWORD}}`, and pass `--vars-file demo.secrets.json`.
+For credentials or other variables, create an ignored file such as `demo.secrets.json` containing a JSON object: `{"CUSTOMER_EMAIL":"...","CUSTOMER_PASSWORD":"..."}`. Refer to them in the test as `{{CUSTOMER_EMAIL}}` and `{{CUSTOMER_PASSWORD}}`, and pass `--vars-file demo.secrets.json`. Run `testscribe --vars-file --help` for a complete example and file format guide.
 
 To watch a run, use `--headed --slow-mo 1000 --hold-seconds 10`. This delays browser actions by one second and leaves the final page open for ten seconds. In headed mode the page follows the browser window size; maximize the window manually if your desktop does not honor Chromium's maximize request. The flags are optional and do not change the assertion.
 
