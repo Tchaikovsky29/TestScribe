@@ -63,8 +63,4 @@ To watch a run, use `--headed --slow-mo 1000 --hold-seconds 10`. This delays bro
 
 Add `--record-video` to save page video files under the chosen output directory. This captures the browser page for a walkthrough; it does not capture terminal output or narration.
 
-## Approach and limitations
-
-The model first creates a short action plan and explicit checks. Before each action, the runner sends a fresh ARIA snapshot of the current page. Large pages retain header navigation while narrowing main content to named regions. The runner clicks observed controls to move around a site. It accepts a direct navigation URL only when that exact URL appears in the test case and cURL confirms it responds successfully; the starting `--url` gets the same preflight check. Playwright resolves the model's role and accessible name against the live DOM; ambiguous or absent targets block the run. A model sentence saying something worked never counts as proof: the runner evaluates the planned check in the browser. A run uses at most 12 model calls. The JSON report includes the plan, actions, checks, final URL, time, token usage, and failure artifacts.
-
-This is a small screening project, not a general autonomous QA system. It handles ordinary visible controls and text/role/URL assertions; visual-only UI, iframes, downloads, CAPTCHA, complex widgets, and multi-page workflows may need more work. The model may misunderstand an instruction or choose a check weaker than the intended outcome. Live demo sites can change or block automation. A false expectation should fail, while missing credentials, ambiguous targets, and provider errors should return BLOCKED. See the short [approach and limitations note](approach-and-limitations.md).
+See [Approach and limitations](approach-and-limitations.md) for the execution flow and known boundaries.
