@@ -86,4 +86,4 @@ For an MCP-capable agent, register a local stdio server with command `testscribe
 
 ## VS Code
 
-The [VS Code extension](vscode-extension/README.md) creates saved cases, runs them through the Python CLI, and displays the result in a native sidebar. It stores API keys in VS Code Secret Storage and requires the Python package and Chromium to be installed separately. Build a local VSIX with `cd vscode-extension && npm ci && npm run package`, or download the VSIX artifact from the [latest passing workflow](https://github.com/Tchaikovsky29/TestScribe/actions/workflows/verify.yml).
+The [VS Code extension](vscode-extension/README.md) has a chat sidebar for entering a site URL and plain-English test, running it, and inspecting the checked result, actions, and evidence. It also saves reusable JSON cases and runs them from the editor. It stores API keys in VS Code Secret Storage and requires the Python package and Chromium to be installed separately. Build a local VSIX with `cd vscode-extension && npm ci && npm run package`, or download the VSIX from the [preview releases](https://github.com/Tchaikovsky29/TestScribe/releases).
