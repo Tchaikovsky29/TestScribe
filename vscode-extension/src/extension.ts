@@ -132,7 +132,8 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
   }
 
   async reveal(): Promise<void> {
-    await vscode.commands.executeCommand('testscribe.chat.focus');
+    await vscode.commands.executeCommand('workbench.view.extension.testscribe');
+    this.view?.show(false);
   }
 
   async runSaved(uri: vscode.Uri): Promise<void> {
