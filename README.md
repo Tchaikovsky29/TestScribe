@@ -18,6 +18,8 @@ Set `BHARATCODE_API_KEY` in `.env`. The default model is BharatCode `qwen-3.8-27
 
 **No paid subscription option:** Create a free Gemini API key in [Google AI Studio](https://aistudio.google.com/app/apikey), put it in `.env` as `GEMINI_API_KEY`, and pass the Gemini settings shown below. Google's [pricing page](https://ai.google.dev/gemini-api/docs/pricing) lists `gemini-3.1-flash-lite` in its free tier, and its [compatibility guide](https://ai.google.dev/gemini-api/docs/openai) documents the OpenAI-compatible endpoint. This configuration passed four live positive cases across three sites and failed one deliberately false case on 2026-11-07. These were single runs, so results may vary with model output and live-site changes. Free-tier availability and rate limits vary by account and region.
 
+For the agent MCP server, use Python 3.11+ and install the optional extra: `pip install -e '.[agent]'`. The CLI alone still supports Python 3.10+.
+
 ## Run
 
 ```bash
@@ -25,6 +27,15 @@ testscribe run \
   --url https://www.selenium.dev/selenium/web/web-form.html \
   --test 'Enter TestScribe into the Text input field, submit the form, and verify that Received! appears.'
 ```
+
+Reusable cases are JSON files with a starting `url`, a `test` instruction, and optional `vars_file`. Try the included positive and deliberately false cases:
+
+```bash
+testscribe run --case-file examples/web-form-pass.json --json
+testscribe run --case-file examples/web-form-fail.json --json
+```
+
+`--json` prints a compact result with `status`, `reason`, checks, steps, and evidence paths. It is meant for coding agents and editor integrations; the complete `report.json` remains on disk. A saved case can be kept in a web app's `.testscribe/` folder and rerun after changes.
 
 Or use `python -m src run` with the same arguments. The command prints a verdict and writes `artifacts/<timestamp>/report.json`. `--output-dir` accepts a directory, for example `artifacts/custom`; the report is written inside it as `report.json`. Exit code is `0` for PASS and `1` for FAIL or BLOCKED. Nonpassing runs also save a screenshot and Playwright trace when a browser page exists. Traces can contain typed values, so `artifacts/` is ignored by Git.
 
@@ -64,3 +75,15 @@ To watch a run, use `--headed --slow-mo 1000 --hold-seconds 10`. This delays bro
 Add `--record-video` to save page video files under the chosen output directory. This captures the browser page for a walkthrough; it does not capture terminal output or narration.
 
 See [Approach and limitations](approach-and-limitations.md) for the execution flow and known boundaries.
+
+## Coding agents
+
+The [portable TestScribe agent skill](integrations/agent-skills/testscribe/SKILL.md) tells a coding agent when to run a browser case, how to interpret `PASS`, `FAIL`, and `BLOCKED`, and when to inspect evidence. For an agent that reads skills from `~/.agents/skills`, install it with `mkdir -p ~/.agents/skills && cp -R integrations/agent-skills/testscribe ~/.agents/skills/`. Other agents may use another skills directory. Installing the skill does not register tools; agents can always call the CLI directly.
+
+After starting a local web app, an agent can run `testscribe run --url http://localhost:3000 --test 'Open the contact form, submit it empty, and verify that an email error appears.' --json`, inspect the returned check and evidence, change the app if needed, and rerun the same case.
+
+For an MCP-capable agent, register a local stdio server with command `testscribe-mcp` and environment variable `BHARATCODE_API_KEY`. The server provides `start_test`, `get_test_status`, and `get_test_result`. A long test returns a run ID immediately, so the agent can poll and receive the same checked verdict as `report.json`. Its artifacts default to the system temporary directory under `testscribe-runs/`; set `TESTSCRIBE_ARTIFACTS_DIR` to choose another parent directory. Keep keys in the agent's private MCP configuration, not in the repository.
+
+## VS Code
+
+The [VS Code extension](vscode-extension/README.md) creates saved cases, runs them through the Python CLI, and displays the result in a native sidebar. It stores API keys in VS Code Secret Storage and requires the Python package and Chromium to be installed separately. Build a local VSIX with `cd vscode-extension && npm ci && npm run package`.
