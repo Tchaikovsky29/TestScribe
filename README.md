@@ -1,6 +1,6 @@
 # TestScribe
 
-TestScribe runs a plain-English test case in Chromium and reports `PASS`, `FAIL`, or `BLOCKED`. It uses an AI model to turn the case into browser actions, Playwright to find and operate page elements, and code to check the requested result. The same runner works across sites; no PHPTRAVELS selectors or flows are embedded in it.
+TestScribe runs a plain-English test case in Chromium and reports `PASS`, `FAIL`, or `BLOCKED`. Web developers can run saved cases from the CLI or [VS Code extension](vscode-extension/README.md); coding agents can use the [agent skill](integrations/agent-skills/testscribe/SKILL.md) and MCP tools. It uses an AI model to turn the case into browser actions, Playwright to find and operate page elements, and code to check the requested result. The same runner works across sites; no PHPTRAVELS selectors or flows are embedded in it.
 
 ## Setup
 
