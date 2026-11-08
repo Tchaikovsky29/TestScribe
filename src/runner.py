@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import time
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -286,6 +288,8 @@ def run_case(
 ) -> dict[str, Any]:
     output_dir.mkdir(parents=True, exist_ok=True)
     report: dict[str, Any] = {
+        "schema_version": 1,
+        "run_id": os.getenv("TESTSCRIBE_RUN_ID") or uuid.uuid4().hex,
         "status": "BLOCKED",
         "passed": False,
         "reason": "Run did not start",

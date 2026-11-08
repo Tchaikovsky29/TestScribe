@@ -13,8 +13,12 @@ dependencies = [
   "python-dotenv>=1,<2",
 ]
 
+[project.optional-dependencies]
+agent = ["mcp>=2,<3"]
+
 [project.scripts]
 testscribe = "src.cli:main"
+testscribe-mcp = "src.mcp_server:main"
 
 [tool.setuptools.packages.find]
 include = ["src*"]

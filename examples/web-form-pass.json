@@ -1,0 +1,4 @@
+{
+  "url": "https://www.selenium.dev/selenium/web/web-form.html",
+  "test": "Enter TestScribe into the Text input field, submit the form, and verify that Received! appears."
+}
