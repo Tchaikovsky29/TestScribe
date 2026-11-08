@@ -28,4 +28,6 @@ npm run package
 
 Install the resulting `.vsix` with **Extensions: Install from VSIX...**. The extension is also runnable from the source folder with VS Code's Extension Development Host after compilation.
 
+The [public verification workflow](https://github.com/Tchaikovsky29/TestScribe/actions/workflows/verify.yml) builds a downloadable VSIX artifact after its CLI/MCP tests pass. This provides an early way to try the extension before Marketplace publication.
+
 The package uses a development publisher ID. Publishing to the Marketplace requires replacing it with a publisher ID you control and completing the Marketplace publisher setup.
