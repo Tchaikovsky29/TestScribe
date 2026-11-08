@@ -155,7 +155,7 @@ export function activate(context: vscode.ExtensionContext): void {
     try { validateCase(Buffer.from(await vscode.workspace.fs.readFile(caseUri)).toString('utf8')); }
     catch (error) { vscode.window.showErrorMessage(`Invalid TestScribe case: ${String(error)}`); return; }
     const folder = workspaceFor(caseUri);
-    const config = vscode.workspace.getConfiguration('testscribe', caseUri);
+    const config = vscode.workspace.getConfiguration('testscribe');
     const keyName = config.get<string>('apiKeyEnv', 'BHARATCODE_API_KEY');
     let secret = await context.secrets.get(`testscribe.${keyName}`);
     const hasDotEnv = fs.existsSync(path.join(folder?.uri.fsPath ?? path.dirname(caseUri.fsPath), '.env'));
