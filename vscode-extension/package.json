@@ -1,14 +1,26 @@
 {
   "name": "testscribe",
   "displayName": "TestScribe",
-  "description": "Run plain-English browser tests from saved cases in VS Code",
-  "version": "0.1.0",
+  "description": "Chat with an AI browser tester inside VS Code",
+  "version": "0.2.0",
   "publisher": "testscribe",
   "license": "MIT",
-  "repository": { "type": "git", "url": "https://github.com/Tchaikovsky29/TestScribe.git" },
-  "engines": { "vscode": "^1.90.0" },
-  "categories": ["Testing"],
-  "activationEvents": ["onCommand:testscribe.newCase", "onCommand:testscribe.runCase", "onView:testscribe.results"],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Tchaikovsky29/TestScribe.git"
+  },
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Testing"
+  ],
+  "activationEvents": [
+    "onCommand:testscribe.newCase",
+    "onCommand:testscribe.runCase",
+    "onCommand:testscribe.openChat",
+    "onView:testscribe.chat"
+  ],
   "main": "./out/extension.js",
   "scripts": {
     "compile": "tsc -p ./",
@@ -16,28 +28,96 @@
   },
   "contributes": {
     "commands": [
-      { "command": "testscribe.newCase", "title": "TestScribe: New Test Case" },
-      { "command": "testscribe.runCase", "title": "TestScribe: Run Test Case" },
-      { "command": "testscribe.setApiKey", "title": "TestScribe: Set API Key" },
-      { "command": "testscribe.openReport", "title": "TestScribe: Open Last Report" }
+      {
+        "command": "testscribe.newCase",
+        "title": "TestScribe: New Test Case"
+      },
+      {
+        "command": "testscribe.runCase",
+        "title": "TestScribe: Run Test Case"
+      },
+      {
+        "command": "testscribe.openChat",
+        "title": "TestScribe: Open Chat"
+      },
+      {
+        "command": "testscribe.setApiKey",
+        "title": "TestScribe: Set API Key"
+      },
+      {
+        "command": "testscribe.openReport",
+        "title": "TestScribe: Open Last Report"
+      }
     ],
     "menus": {
-      "editor/title": [{ "command": "testscribe.runCase", "when": "resourceExtname == .json", "group": "navigation" }],
-      "explorer/context": [{ "command": "testscribe.runCase", "when": "resourceExtname == .json", "group": "navigation" }],
-      "view/title": [{ "command": "testscribe.runCase", "when": "view == testscribe.results", "group": "navigation" }]
+      "editor/title": [
+        {
+          "command": "testscribe.runCase",
+          "when": "resourceExtname == .json",
+          "group": "navigation"
+        }
+      ],
+      "explorer/context": [
+        {
+          "command": "testscribe.runCase",
+          "when": "resourceExtname == .json",
+          "group": "navigation"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "testscribe.newCase",
+          "when": "view == testscribe.chat",
+          "group": "navigation"
+        }
+      ]
     },
     "viewsContainers": {
-      "activitybar": [{ "id": "testscribe", "title": "TestScribe", "icon": "resources/icon.svg" }]
+      "activitybar": [
+        {
+          "id": "testscribe",
+          "title": "TestScribe",
+          "icon": "resources/icon.svg"
+        }
+      ]
     },
-    "views": { "testscribe": [{ "id": "testscribe.results", "name": "Results" }] },
+    "views": {
+      "testscribe": [
+        {
+          "id": "testscribe.chat",
+          "name": "Chat",
+          "type": "webview"
+        }
+      ]
+    },
     "configuration": {
       "title": "TestScribe",
       "properties": {
-        "testscribe.cliPath": { "type": "string", "default": "", "description": "Path to the testscribe CLI. Leave empty to use a workspace .venv or PATH." },
-        "testscribe.model": { "type": "string", "default": "qwen-3.8-27b", "description": "OpenAI-compatible model ID." },
-        "testscribe.baseUrl": { "type": "string", "default": "https://bharatcode.ai/api/model/v1", "description": "OpenAI-compatible API base URL." },
-        "testscribe.apiKeyEnv": { "type": "string", "default": "BHARATCODE_API_KEY", "description": "Environment variable name for the API key. Use Set API Key to store it in VS Code Secret Storage." },
-        "testscribe.headed": { "type": "boolean", "default": false, "description": "Show Chromium while the test runs." }
+        "testscribe.cliPath": {
+          "type": "string",
+          "default": "",
+          "description": "Path to the testscribe CLI. Leave empty to use a workspace .venv or PATH."
+        },
+        "testscribe.model": {
+          "type": "string",
+          "default": "qwen-3.8-27b",
+          "description": "OpenAI-compatible model ID."
+        },
+        "testscribe.baseUrl": {
+          "type": "string",
+          "default": "https://bharatcode.ai/api/model/v1",
+          "description": "OpenAI-compatible API base URL."
+        },
+        "testscribe.apiKeyEnv": {
+          "type": "string",
+          "default": "BHARATCODE_API_KEY",
+          "description": "Environment variable name for the API key. Use Set API Key to store it in VS Code Secret Storage."
+        },
+        "testscribe.headed": {
+          "type": "boolean",
+          "default": false,
+          "description": "Show Chromium while the test runs."
+        }
       }
     }
   },
