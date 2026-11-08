@@ -2,7 +2,7 @@
   "name": "testscribe",
   "displayName": "TestScribe",
   "description": "Chat with an AI browser tester inside VS Code",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "publisher": "testscribe",
   "license": "MIT",
   "repository": {
