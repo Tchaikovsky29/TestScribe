@@ -36,7 +36,8 @@ jobs:
           npm run package
       - uses: actions/upload-artifact@v7
         with:
-          path: vscode-extension/testscribe-0.1.0.vsix
+          name: testscribe-vsix
+          path: vscode-extension/*.vsix
           archive: false
 
   release-preview:
@@ -49,9 +50,9 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/download-artifact@v8
         with:
-          name: testscribe-0.1.0.vsix
+          name: testscribe-vsix
           path: dist
       - name: Publish preview VSIX
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" dist/testscribe-0.1.0.vsix --verify-tag --prerelease --title "TestScribe VS Code preview 0.1.0" --notes-file .github/release-notes-vscode-preview.md
+        run: gh release create "$GITHUB_REF_NAME" dist/*.vsix --verify-tag --prerelease --title "TestScribe VS Code $GITHUB_REF_NAME" --notes-file .github/release-notes-vscode-preview.md
