@@ -3,6 +3,7 @@ name: Verify TestScribe
 on:
   push:
     branches: [main, dev]
+    tags: ['vscode-v*']
   pull_request:
   workflow_dispatch:
 
@@ -37,3 +38,20 @@ jobs:
         with:
           path: vscode-extension/testscribe-0.1.0.vsix
           archive: false
+
+  release-preview:
+    if: startsWith(github.ref, 'refs/tags/vscode-v')
+    needs: verify-and-package
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: testscribe-0.1.0.vsix
+          path: dist
+      - name: Publish preview VSIX
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" dist/testscribe-0.1.0.vsix --verify-tag --prerelease --title "TestScribe VS Code preview 0.1.0" --notes-file .github/release-notes-vscode-preview.md
