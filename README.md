@@ -37,7 +37,7 @@ testscribe run --case-file examples/web-form-fail.json --json
 
 `--json` prints a compact result with `status`, `reason`, checks, steps, and evidence paths. It is meant for coding agents and editor integrations; the complete `report.json` remains on disk. A saved case can be kept in a web app's `.testscribe/` folder and rerun after changes.
 
-Or use `python -m src run` with the same arguments. The command prints a verdict and writes `artifacts/<timestamp>/report.json`. `--output-dir` accepts a directory, for example `artifacts/custom`; the report is written inside it as `report.json`. Exit code is `0` for PASS and `1` for FAIL or BLOCKED. Nonpassing runs also save a screenshot and Playwright trace when a browser page exists. Traces can contain typed values, so `artifacts/` is ignored by Git.
+Or use `python -m src run` with the same arguments. The command prints a verdict and writes `artifacts/<timestamp>/report.json`. `--output-dir` accepts a directory, for example `artifacts/custom`; the report is written inside it as `report.json`. Exit code is `0` for PASS and `1` for FAIL or BLOCKED. A passing run saves a final-page `pass.png` by default; add `--no-pass-screenshot` to skip it. Nonpassing runs save `failure.png` and a Playwright trace when a browser page exists. Marked sensitive variables disable these artifacts unless explicitly allowed. Traces can contain typed values, so `artifacts/` is ignored by Git.
 
 False expectation example:
 
@@ -68,11 +68,13 @@ testscribe run \
   --api-key-env GEMINI_API_KEY
 ```
 
-For credentials or other variables, create an ignored file such as `demo.secrets.json` containing a JSON object: `{"CUSTOMER_EMAIL":"...","CUSTOMER_PASSWORD":"..."}`. Refer to them in the test as `{{CUSTOMER_EMAIL}}` and `{{CUSTOMER_PASSWORD}}`, and pass `--vars-file demo.secrets.json`. Run `testscribe --vars-file --help` for a complete example and file format guide.
+For credentials or other variables, create an ignored file such as `demo.secrets.json` containing a JSON object: `{"CUSTOMER_EMAIL":"customer@example.com","_PASSWORD":"admin123"}`. Refer to them in the test as `{{CUSTOMER_EMAIL}}` and `{{_PASSWORD}}`, and pass `--vars-file demo.secrets.json`. A key starting with `_` marks its value as sensitive: TestScribe substitutes it locally when filling the browser, replaces exact matches (including URL-encoded forms) before model requests and in reports, and does not save screenshots, traces, or video by default. Unmarked values, such as a username, can appear in model requests. Run `testscribe --vars-file --help` for the format guide.
+
+The target website still receives filled values. Exact-match redaction cannot cover values that the site transforms into an unrecognized form. If you intentionally need sensitive screenshots (including the default pass screenshot), traces, or video, use `--allow-sensitive-artifacts`; these files can reveal the values and should be handled privately. `--record-video` with sensitive variables requires that flag.
 
 To watch a run, use `--headed --slow-mo 1000 --hold-seconds 10`. This delays browser actions by one second and leaves the final page open for ten seconds. In headed mode the page follows the browser window size; maximize the window manually if your desktop does not honor Chromium's maximize request. The flags are optional and do not change the assertion.
 
-Add `--record-video` to save page video files under the chosen output directory. This captures the browser page for a walkthrough; it does not capture terminal output or narration.
+Add `--record-video` to save page video files under the chosen output directory. This captures the browser page for a walkthrough; it does not capture terminal output or narration. Sensitive runs require `--allow-sensitive-artifacts` to record video.
 
 See [Approach and limitations](approach-and-limitations.md) for the execution flow and known boundaries.
 
@@ -82,7 +84,7 @@ The [portable TestScribe agent skill](integrations/agent-skills/testscribe/SKILL
 
 After starting a local web app, an agent can run `testscribe run --url http://localhost:3000 --test 'Open the contact form, submit it empty, and verify that an email error appears.' --json`, inspect the returned check and evidence, change the app if needed, and rerun the same case.
 
-For an MCP-capable agent, register a local stdio server with command `testscribe-mcp` and environment variable `BHARATCODE_API_KEY`. The server provides `start_test`, `get_test_status`, and `get_test_result`. A long test returns a run ID immediately, so the agent can poll and receive the same checked verdict as `report.json`. Its artifacts default to the system temporary directory under `testscribe-runs/`; set `TESTSCRIBE_ARTIFACTS_DIR` to choose another parent directory. Keep keys in the agent's private MCP configuration, not in the repository.
+For an MCP-capable agent, register a local stdio server with command `testscribe-mcp` and environment variable `BHARATCODE_API_KEY`. The server provides `start_test`, `get_test_status`, and `get_test_result`. A long test returns a run ID immediately, so the agent can poll and receive the same checked verdict as `report.json`. Pass `no_pass_screenshot: true` to `start_test` to skip pass screenshots. Its artifacts default to the system temporary directory under `testscribe-runs/`; set `TESTSCRIBE_ARTIFACTS_DIR` to choose another parent directory. Keep keys in the agent's private MCP configuration, not in the repository.
 
 ## VS Code
 

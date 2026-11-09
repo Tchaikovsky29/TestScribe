@@ -26,7 +26,13 @@ class DemoHandler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:
         if self.path.startswith("/submitted"):
+            self.server.submitted_paths.append(self.path)
             body = b"<html><body><h1>Received!</h1></body></html>"
+        elif self.path.startswith("/secret-form"):
+            body = (b"<html><body><form action='/submitted'>"
+                    b"<label>Username <input name='username'></label>"
+                    b"<label>Password <input name='password' type='password'></label>"
+                    b"<button type='submit'>Submit</button></form></body></html>")
         else:
             body = (b"<html><body><form action='/submitted'>"
                     b"<label>Text input <input name='text'></label>"
@@ -42,13 +48,21 @@ class DemoHandler(BaseHTTPRequestHandler):
         data = json.loads(self.rfile.read(size))
         system = data["messages"][0]["content"]
         user = data["messages"][1]["content"]
+        self.server.model_inputs.append(user)
         if "You convert a plain-English" in system:
-            if "absent" in user:
+            if "{{_PASSWORD}}" in user:
+                answer = {"actions": ["Enter {{USERNAME}} into Username", "Enter {{_PASSWORD}} into Password", "Submit the form"],
+                          "checks": [{"kind": "text_visible", "text": "Never" if "Never" in user else "Received!"}]}
+            elif "absent" in user:
                 answer = {"actions": ["Submit the form"],
                           "checks": [{"kind": "text_absent", "text": "Received!"}]}
             else:
                 answer = {"actions": ["Enter Demo into Text input", "Submit the form"],
                           "checks": [{"kind": "text_visible", "text": "Received!"}]}
+        elif "CURRENT INTENT: Enter {{USERNAME}}" in user:
+            answer = {"action": "fill", "role": "textbox", "name": "Username", "value": "{{USERNAME}}"}
+        elif "CURRENT INTENT: Enter {{_PASSWORD}}" in user:
+            answer = {"action": "fill", "role": "textbox", "name": "Password", "value": "{{_PASSWORD}}"}
         elif "CURRENT INTENT: Enter Demo" in user:
             answer = {"action": "fill", "role": "textbox", "name": "Text input", "value": "Demo"}
         else:
@@ -69,6 +83,8 @@ class AgentFlowTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.server = ThreadingHTTPServer(("127.0.0.1", 0), DemoHandler)
+        cls.server.model_inputs = []
+        cls.server.submitted_paths = []
         cls.thread = threading.Thread(target=cls.server.serve_forever, daemon=True)
         cls.thread.start()
         cls.base = f"http://127.0.0.1:{cls.server.server_port}"
@@ -85,17 +101,19 @@ class AgentFlowTests(unittest.TestCase):
         self.root = Path(self.temporary.name)
         self.environment = os.environ.copy()
         self.environment["TEST_STUB_KEY"] = "local-test-key"
+        self.server.model_inputs.clear()
+        self.server.submitted_paths.clear()
 
     def case(self, test: str) -> Path:
         path = self.root / "case.json"
         path.write_text(json.dumps({"url": self.base + "/form", "test": test}), encoding="utf-8")
         return path
 
-    def run_cli(self, path: Path, name: str) -> tuple[subprocess.CompletedProcess[str], dict]:
+    def run_cli(self, path: Path, name: str, *extra_args: str) -> tuple[subprocess.CompletedProcess[str], dict]:
         result = subprocess.run(
             [sys.executable, "-m", "src", "run", "--case-file", str(path), "--json",
              "--base-url", self.base + "/v1", "--model", "stub", "--api-key-env", "TEST_STUB_KEY",
-             "--output-dir", str(self.root / name)],
+             "--output-dir", str(self.root / name), *extra_args],
             env=self.environment, capture_output=True, text=True, timeout=30,
         )
         return result, json.loads(result.stdout)
@@ -108,6 +126,13 @@ class AgentFlowTests(unittest.TestCase):
         self.assertEqual(len(summary["steps"]), 2)
         self.assertTrue(Path(summary["report_path"]).is_file())
         self.assertEqual(json.loads(Path(summary["report_path"]).read_text())["run_id"], summary["run_id"])
+        self.assertTrue(Path(summary["artifacts"]["screenshot"]).is_file())
+        self.assertEqual(Path(summary["artifacts"]["screenshot"]).name, "pass.png")
+
+        result, without_screenshot = self.run_cli(case, "pass-no-screenshot", "--no-pass-screenshot")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(without_screenshot["status"], "PASS")
+        self.assertNotIn("screenshot", without_screenshot["artifacts"])
 
         case = self.case("Submit the form and verify Received! is absent.")
         result, summary = self.run_cli(case, "fail")
@@ -127,6 +152,44 @@ class AgentFlowTests(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 2)
         self.assertIn("HTTP", result.stderr)
+
+    def test_sensitive_variable_stays_out_of_model_and_report(self) -> None:
+        password = "admin123"
+        username = "public-user"
+        vars_path = self.root / "login.secrets.json"
+        vars_path.write_text(json.dumps({"USERNAME": username, "_PASSWORD": password}), encoding="utf-8")
+        case_path = self.root / "login.json"
+        case_path.write_text(json.dumps({
+            "url": self.base + "/secret-form",
+            "test": "Enter {{USERNAME}} into Username, enter {{_PASSWORD}} into Password, submit the form, and verify Received! appears.",
+            "vars_file": vars_path.name,
+        }), encoding="utf-8")
+        result, summary = self.run_cli(case_path, "sensitive-pass")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(summary["status"], "PASS")
+        self.assertNotIn("screenshot", summary["artifacts"])
+        self.assertIn("password=admin123", self.server.submitted_paths[-1])
+        self.assertNotIn(password, json.dumps(self.server.model_inputs))
+        self.assertIn("[REDACTED]", json.dumps(self.server.model_inputs))
+        self.assertIn(username, json.dumps(self.server.model_inputs))
+        self.assertNotIn(password, result.stdout)
+        self.assertNotIn(password, Path(summary["report_path"]).read_text())
+        self.assertIn("[REDACTED]", summary["final_url"])
+
+        result, allowed = self.run_cli(case_path, "sensitive-allowed", "--allow-sensitive-artifacts")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(Path(allowed["artifacts"]["screenshot"]).is_file())
+
+        case_path.write_text(json.dumps({
+            "url": self.base + "/secret-form",
+            "test": "Enter {{USERNAME}} into Username, enter {{_PASSWORD}} into Password, submit the form, and verify Never appears.",
+            "vars_file": vars_path.name,
+        }), encoding="utf-8")
+        result, summary = self.run_cli(case_path, "sensitive-fail")
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertEqual(summary["status"], "FAIL")
+        self.assertEqual(summary["artifacts"], {})
+        self.assertNotIn(password, Path(summary["report_path"]).read_text())
 
     def test_installed_cli_reads_dotenv_from_other_project(self) -> None:
         case = self.case("Enter Demo into Text input, submit the form, and verify Received! appears.")
@@ -176,7 +239,24 @@ class AgentFlowTests(unittest.TestCase):
                 result = (await client.call_tool("get_test_result", {"run_id": run_id})).structured_content
                 self.assertEqual(result["run_id"], run_id)
                 self.assertEqual(result["status"], "PASS")
+                self.assertTrue(Path(result["artifacts"]["screenshot"]).is_file())
                 self.assertEqual(json.loads(Path(result["report_path"]).read_text())["status"], "PASS")
+
+                started = await client.call_tool("start_test", {
+                    "case_file": str(case), "model": "stub", "base_url": self.base + "/v1",
+                    "api_key_env": "TEST_STUB_KEY", "no_pass_screenshot": True,
+                })
+                no_image_run_id = started.structured_content["run_id"]
+                for _ in range(100):
+                    state = (await client.call_tool("get_test_status", {"run_id": no_image_run_id})).structured_content
+                    if state["status"] != "RUNNING":
+                        break
+                    await asyncio.sleep(0.1)
+                else:
+                    self.fail("MCP no-screenshot test did not finish in 10 seconds")
+                no_image_result = (await client.call_tool("get_test_result", {"run_id": no_image_run_id})).structured_content
+                self.assertEqual(no_image_result["status"], "PASS")
+                self.assertNotIn("screenshot", no_image_result["artifacts"])
 
         asyncio.run(check())
 

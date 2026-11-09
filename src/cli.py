@@ -15,6 +15,7 @@ from src.model import ModelClient
 from src.cases import CaseFileError, load_case_file
 from src.reporting import compact_report
 from src.runner import run_case
+from src.secrets import SecretRedactor
 
 
 def show_vars_file_help() -> None:
@@ -24,15 +25,17 @@ def show_vars_file_help() -> None:
         description="Use a local JSON file to supply values for placeholders in a browser test.",
         epilog=(
             "Create demo.secrets.json:\n"
-            '  {"CUSTOMER_EMAIL": "customer@example.com", "CUSTOMER_PASSWORD": "your-password"}\n\n'
+            '  {"CUSTOMER_EMAIL": "customer@example.com", "_PASSWORD": "your-password"}\n\n'
             "Run a test:\n"
             "  testscribe run --url https://example.com/login \\\n"
-            "    --test 'Log in with {{CUSTOMER_EMAIL}} and {{CUSTOMER_PASSWORD}}, then verify the dashboard is shown' \\\n"
+            "    --test 'Log in with {{CUSTOMER_EMAIL}} and {{_PASSWORD}}, then verify the dashboard is shown' \\\n"
             "    --vars-file demo.secrets.json\n\n"
             "The file must contain one JSON object with string keys and string values.\n"
             "Placeholders are replaced when the runner fills browser fields.\n"
+            "Keys starting with _ are sensitive: their values are redacted from model requests and reports.\n"
+            "Sensitive runs do not save screenshots, traces, or video unless --allow-sensitive-artifacts is set.\n"
             "The file is optional. Use a *.secrets.json name to keep it Git ignored.\n"
-            "Browser traces and reports may contain typed values."
+            "The target website still receives filled values. Other unmarked values may appear in model requests and artifacts."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         add_help=False,
@@ -68,6 +71,8 @@ def main() -> None:
     run.add_argument("--slow-mo", type=int, default=0, metavar="MS", help="Delay each browser action by this many milliseconds")
     run.add_argument("--hold-seconds", type=float, default=0, metavar="SECONDS", help="Keep the final page open before closing")
     run.add_argument("--record-video", action="store_true", help="Save browser page video in the output directory")
+    run.add_argument("--no-pass-screenshot", action="store_true", help="Do not save a final-page screenshot when a test passes")
+    run.add_argument("--allow-sensitive-artifacts", action="store_true", help="Allow screenshots, traces, and video when variables starting with _ are used")
     run.add_argument("--json", action="store_true", help="Print one compact JSON result on stdout for agents and integrations")
     # Generate top-level help from the run parser so its flag list stays current.
     parser.epilog = "Vars file guide: testscribe --vars-file --help\n\nRun command help:\n\n" + run.format_help()
@@ -104,9 +109,14 @@ def main() -> None:
         ):
             parser.error("--vars-file must contain a JSON object of string keys and values")
         variables = values
+    if any(name.startswith("_") and not value for name, value in variables.items()):
+        parser.error("Sensitive variables (keys starting with _) must have nonempty values")
+    redactor = SecretRedactor.from_variables(variables)
+    if redactor.values and args.record_video and not args.allow_sensitive_artifacts:
+        parser.error("--record-video with sensitive variables requires --allow-sensitive-artifacts")
 
     output_dir = args.output_dir or Path("artifacts") / datetime.now().strftime("%Y%m%d-%H%M%S-%f")
-    model = ModelClient(api_key=api_key, base_url=args.base_url, model=args.model)
+    model = ModelClient(api_key=api_key, base_url=args.base_url, model=args.model, redactor=redactor)
     report = run_case(
         url=args.url,
         case=args.test,
@@ -117,6 +127,8 @@ def main() -> None:
         slow_mo=args.slow_mo,
         hold_seconds=args.hold_seconds,
         record_video=args.record_video,
+        allow_sensitive_artifacts=args.allow_sensitive_artifacts,
+        pass_screenshot=not args.no_pass_screenshot,
     )
     report_path = output_dir / "report.json"
     if args.json:

@@ -8,6 +8,8 @@ from typing import Any
 
 from openai import OpenAI
 
+from src.secrets import SecretRedactor
+
 
 class ModelError(Exception):
     """The model did not return a usable decision."""
@@ -19,6 +21,7 @@ class ModelClient:
     base_url: str
     model: str
     max_calls: int = 12
+    redactor: SecretRedactor = SecretRedactor()
 
     def __post_init__(self) -> None:
         self.client = OpenAI(
@@ -37,6 +40,8 @@ class ModelClient:
         options: dict[str, Any] = {}
         if "bharatcode.ai" in self.base_url:
             options["extra_body"] = {"reasoning_effort": "none"}
+        system = self.redactor.redact(system)
+        user = self.redactor.redact(user)
         try:
             response = self.client.chat.completions.create(
                 model=self.model,

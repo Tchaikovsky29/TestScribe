@@ -274,6 +274,16 @@ def save_failure_artifacts(page: Page, context: Any, output_dir: Path, report: d
         pass
 
 
+def save_pass_screenshot(page: Page, output_dir: Path, report: dict[str, Any]) -> None:
+    """Keep a final-page image without changing a verified PASS if capture fails."""
+    try:
+        screenshot = output_dir / "pass.png"
+        page.screenshot(path=str(screenshot), full_page=True, timeout=5000)
+        report["artifacts"]["screenshot"] = str(screenshot)
+    except PlaywrightError:
+        pass
+
+
 def run_case(
     *,
     url: str,
@@ -285,6 +295,8 @@ def run_case(
     slow_mo: int = 0,
     hold_seconds: float = 0,
     record_video: bool = False,
+    allow_sensitive_artifacts: bool = False,
+    pass_screenshot: bool = True,
 ) -> dict[str, Any]:
     output_dir.mkdir(parents=True, exist_ok=True)
     report: dict[str, Any] = {
@@ -307,7 +319,10 @@ def run_case(
     started = time.monotonic()
     page: Page | None = None
     context = None
+    save_artifacts = not model.redactor.values or allow_sensitive_artifacts
     try:
+        if record_video and not save_artifacts:
+            raise PlanError("Video with sensitive variables requires --allow-sensitive-artifacts")
         if (
             re.search(r"\b(log\s*in|sign\s*in)\b", case, re.I)
             and not re.search(r"\b(password|credential|single sign.on|sso)\b|\{\{", case, re.I)
@@ -330,7 +345,8 @@ def run_case(
                     record_video_size={"width": 1280, "height": 720},
                 )
             context = browser.new_context(**context_options)
-            context.tracing.start(screenshots=True, snapshots=True, sources=True)
+            if save_artifacts:
+                context.tracing.start(screenshots=True, snapshots=True, sources=True)
             try:
                 page = context.new_page()
                 page.goto(url, wait_until="domcontentloaded", timeout=30000)
@@ -366,14 +382,17 @@ def run_case(
                     report["passed"] = True
                     report["reason"] = "All requested checks matched the browser state"
                 report["final_url"] = page.url
-                if report["passed"]:
+                if report["passed"] and save_artifacts:
+                    if pass_screenshot:
+                        save_pass_screenshot(page, output_dir, report)
                     context.tracing.stop()
-                else:
+                elif not report["passed"] and save_artifacts:
                     save_failure_artifacts(page, context, output_dir, report)
             except Exception:
                 if page is not None:
                     report["final_url"] = page.url
-                    save_failure_artifacts(page, context, output_dir, report)
+                    if save_artifacts:
+                        save_failure_artifacts(page, context, output_dir, report)
                 raise
             finally:
                 if headed and hold_seconds and page is not None and not page.is_closed():
@@ -393,5 +412,6 @@ def run_case(
         report["model_calls"] = model.calls
         report["token_usage"] = model.usage
         report["elapsed_seconds"] = round(time.monotonic() - started, 2)
+        report = model.redactor.redact_data(report)
         (output_dir / "report.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
     return report

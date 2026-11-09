@@ -16,7 +16,7 @@ If there is no workspace `.env` or configured environment variable, use **TestSc
 
 The extension uses the workspace `.venv/bin/testscribe` (or `.venv/Scripts/testscribe.exe` on Windows) when present, then falls back to `testscribe` on `PATH`. Set `testscribe.cliPath` if installed elsewhere. Configure `testscribe.model`, `testscribe.baseUrl`, and `testscribe.apiKeyEnv` to use another provider. For Gemini, use `gemini-3.1-flash-lite`, `https://generativelanguage.googleapis.com/v1beta/openai/`, and `GEMINI_API_KEY` respectively. The chat conversation is kept in memory for the current VS Code session.
 
-Run artifacts are stored in VS Code's extension storage, outside the workspace. They can contain typed values or page contents. An optional `vars_file` in a case should point to an ignored local file; see the root README.
+Run artifacts are stored in VS Code's extension storage, outside the workspace. Passing runs save a final-page screenshot by default; set `testscribe.passScreenshot` to `false` to turn it off. An optional `vars_file` in a case should point to an ignored local file. Prefix sensitive variable names with `_`; the Python runner redacts exact matches in model requests and reports and skips screenshots and traces for those runs by default. Unmarked values and explicitly enabled artifacts can expose typed values. See the root README.
 
 ## Build a VSIX
 

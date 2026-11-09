@@ -39,6 +39,7 @@ class JobManager:
         model: str | None = None,
         base_url: str | None = None,
         api_key_env: str | None = None,
+        no_pass_screenshot: bool = False,
     ) -> dict[str, str]:
         if case_file:
             if url or test:
@@ -67,6 +68,8 @@ class JobManager:
         for flag, value in (("--model", model), ("--base-url", base_url), ("--api-key-env", api_key_env)):
             if value:
                 args += [flag, value]
+        if no_pass_screenshot:
+            args.append("--no-pass-screenshot")
         environment = os.environ.copy()
         environment["TESTSCRIBE_RUN_ID"] = run_id
         try:
@@ -134,10 +137,12 @@ def main() -> None:
         model: str | None = None,
         base_url: str | None = None,
         api_key_env: str | None = None,
+        no_pass_screenshot: bool = False,
     ) -> dict[str, str]:
         """Start a browser test and return a run ID promptly; provide a case file or URL and test."""
         return jobs.start(url=url, test=test, case_file=case_file, vars_file=vars_file,
-                          model=model, base_url=base_url, api_key_env=api_key_env)
+                          model=model, base_url=base_url, api_key_env=api_key_env,
+                          no_pass_screenshot=no_pass_screenshot)
 
     @server.tool()
     def get_test_status(run_id: str) -> dict[str, Any]:

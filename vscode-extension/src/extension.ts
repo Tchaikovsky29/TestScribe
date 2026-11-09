@@ -234,6 +234,7 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
       if (request.caseFile) args.push('--case-file', request.caseFile);
       else args.push('--url', request.url, '--test', request.test);
       if (config.get<boolean>('headed', false)) args.push('--headed');
+      if (!config.get<boolean>('passScreenshot', true)) args.push('--no-pass-screenshot');
       this.output.appendLine(`Running: ${request.test} (${request.url})`);
       const result = await new Promise<TestResult>((resolve, reject) => {
         const child = spawn(executable(folder), args, { cwd: folder?.uri.fsPath ?? path.dirname(request.caseFile ?? ''),
