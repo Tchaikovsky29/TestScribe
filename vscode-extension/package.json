@@ -2,7 +2,7 @@
   "name": "testscribe",
   "displayName": "TestScribe",
   "description": "Chat with an AI browser tester inside VS Code",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "publisher": "testscribe",
   "license": "MIT",
   "repository": {
@@ -108,11 +108,6 @@
           ],
           "default": "bharatcode",
           "description": "Model provider preset. Custom requires a model and base URL in TestScribe settings."
-        },
-        "testscribe.model": {
-          "type": "string",
-          "default": "",
-          "description": "Optional model ID override for the selected provider; required for Custom."
         },
         "testscribe.baseUrl": {
           "type": "string",

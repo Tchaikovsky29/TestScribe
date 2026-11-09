@@ -4,7 +4,8 @@
   const target = document.getElementById('target');
   const prompt = document.getElementById('prompt');
   const model = document.getElementById('model');
-  const provider = document.getElementById('provider');
+  const customModel = document.getElementById('customModel');
+  const modelStatus = document.getElementById('modelStatus');
   const send = document.getElementById('send');
   const save = document.getElementById('save');
   const cancel = document.getElementById('cancel');
@@ -12,6 +13,27 @@
   let busy = false;
   let lastTest = '';
   let noticeTimer;
+  let currentProvider = 'bharatcode';
+
+  function showModels(message) {
+    currentProvider = message.provider || 'bharatcode';
+    const custom = currentProvider === 'custom';
+    model.classList.toggle('hidden', custom);
+    customModel.classList.toggle('hidden', !custom);
+    if (custom) customModel.value = message.model || '';
+    else {
+      model.replaceChildren();
+      for (const id of Array.isArray(message.models) ? message.models : []) {
+        const option = document.createElement('option');
+        option.value = id;
+        option.textContent = id;
+        model.append(option);
+      }
+      model.value = message.model || '';
+    }
+    const label = { bharatcode: 'BharatCode', gemini: 'Gemini', groq: 'Groq', custom: 'Custom' }[currentProvider] || currentProvider;
+    modelStatus.textContent = label + (message.modelStatus ? ' · ' + message.modelStatus : ' · Change provider in Settings');
+  }
 
   function node(tag, className, text) {
     const element = document.createElement(tag);
@@ -184,7 +206,8 @@
     send.classList.toggle('hidden', busy);
     cancel.classList.toggle('hidden', !busy);
     save.disabled = busy;
-    provider.disabled = busy;
+    model.disabled = busy;
+    customModel.disabled = busy;
   }
 
   function submit() {
@@ -195,8 +218,7 @@
     if (!test) { showNotice('Describe the browser actions and expected result.'); prompt.focus(); return; }
     notice.textContent = '';
     lastTest = test;
-    vscode.postMessage({ type: 'run', url, test });
-    prompt.value = '';
+    vscode.postMessage({ type: 'run', url, test, model: currentProvider === 'custom' ? customModel.value.trim() : model.value });
   }
 
   window.addEventListener('message', event => {
@@ -210,16 +232,14 @@
       if (message.url) target.value = message.url;
       const lastUser = Array.isArray(message.entries) ? [...message.entries].reverse().find(entry => entry.kind === 'user') : undefined;
       if (lastUser) lastTest = lastUser.text;
-      provider.value = message.provider || 'bharatcode';
-      model.textContent = message.model ? 'Model · ' + message.model : '';
+      showModels(message);
       setBusy(message.busy);
       scrollToEnd();
     } else if (message.type === 'provider') {
-      provider.value = message.provider || 'bharatcode';
-      model.textContent = message.model ? 'Model · ' + message.model : '';
+      showModels(message);
     } else if (message.type === 'entry') {
       document.getElementById('welcome')?.remove();
-      if (message.entry.kind === 'user') lastTest = message.entry.text;
+      if (message.entry.kind === 'user') { lastTest = message.entry.text; prompt.value = ''; }
       conversation.append(render(message.entry));
       scrollToEnd();
     } else if (message.type === 'replace') {
@@ -233,7 +253,10 @@
   });
 
   send.addEventListener('click', submit);
-  provider.addEventListener('change', () => vscode.postMessage({ type: 'providerChanged', provider: provider.value }));
+  model.addEventListener('change', () => vscode.postMessage({ type: 'modelChanged', model: model.value }));
+  customModel.addEventListener('change', () => {
+    if (customModel.value.trim()) vscode.postMessage({ type: 'modelChanged', model: customModel.value.trim() });
+  });
   cancel.addEventListener('click', () => vscode.postMessage({ type: 'cancel' }));
   save.addEventListener('click', () => vscode.postMessage({ type: 'saveCase', url: target.value, test: prompt.value.trim() || lastTest }));
   document.getElementById('settings').addEventListener('click', () => vscode.postMessage({ type: 'openSettings' }));

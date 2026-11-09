@@ -24,24 +24,38 @@ type ChatEntry =
 type RunRequest = { url: string; test: string; caseFile?: string; folder?: vscode.WorkspaceFolder };
 
 const providers = {
-  bharatcode: { model: 'qwen-3.8-27b', key: 'BHARATCODE_API_KEY' },
-  gemini: { model: 'gemini-3.1-flash-lite', key: 'GEMINI_API_KEY' },
-  groq: { model: 'openai/gpt-oss-120b', key: 'GROQ_API_KEY' },
-  custom: { model: '', key: 'OPENAI_API_KEY' },
+  bharatcode: { model: 'qwen-3.8-27b', key: 'BHARATCODE_API_KEY', baseUrl: 'https://bharatcode.ai/api/model/v1' },
+  gemini: { model: 'gemini-3.1-flash-lite', key: 'GEMINI_API_KEY', baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai/' },
+  groq: { model: 'openai/gpt-oss-120b', key: 'GROQ_API_KEY', baseUrl: 'https://api.groq.com/openai/v1' },
+  custom: { model: '', key: 'OPENAI_API_KEY', baseUrl: '' },
 } as const;
 type ProviderName = keyof typeof providers;
 
 function providerSettings(config: vscode.WorkspaceConfiguration): {
-  provider: ProviderName; model: string; keyName: string; modelOverride: string; baseUrlOverride: string; keyOverride: string;
+  provider: ProviderName; keyName: string; baseUrl: string; baseUrlOverride: string; keyOverride: string;
 } {
   const selected = config.get<string>('provider', 'bharatcode');
   if (!(selected in providers)) throw new Error(`Unknown model provider: ${selected}`);
   const provider = selected as ProviderName;
-  const modelOverride = config.get<string>('model', '').trim();
   const baseUrlOverride = config.get<string>('baseUrl', '').trim();
   const keyOverride = config.get<string>('apiKeyEnv', '').trim();
-  return { provider, model: modelOverride || providers[provider].model,
-    keyName: keyOverride || providers[provider].key, modelOverride, baseUrlOverride, keyOverride };
+  return { provider, baseUrl: baseUrlOverride || providers[provider].baseUrl,
+    keyName: keyOverride || providers[provider].key, baseUrlOverride, keyOverride };
+}
+
+function dotEnvKey(folder: vscode.WorkspaceFolder | undefined, keyName: string): string | undefined {
+  if (!folder) return undefined;
+  const file = path.join(folder.uri.fsPath, '.env');
+  if (!fs.existsSync(file)) return undefined;
+  for (const line of fs.readFileSync(file, 'utf8').split(/\r?\n/)) {
+    const entry = /^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/.exec(line);
+    if (entry?.[1] !== keyName) continue;
+    const raw = entry[2].trim();
+    const value = ((raw.startsWith('"') && raw.endsWith('"')) || (raw.startsWith("'") && raw.endsWith("'")))
+      ? raw.slice(1, -1) : raw.split(/\s+#/)[0].trim();
+    return value || undefined;
+  }
+  return undefined;
 }
 
 function executable(folder: vscode.WorkspaceFolder | undefined): string {
@@ -96,6 +110,9 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
   private lastReport?: string;
   private reports = new Set<string>();
   private artifacts = new Set<string>();
+  private modelsByProvider = new Map<ProviderName, string[]>();
+  private modelStatus = '';
+  private catalogRequest = 0;
 
   constructor(
     private readonly context: vscode.ExtensionContext,
@@ -115,20 +132,18 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
           case 'ready':
             this.post({ type: 'init', entries: this.entries, url: this.currentUrl,
               ...this.providerView(), busy: Boolean(this.activeRun) });
+            void this.refreshModels();
             break;
-          case 'providerChanged':
-            if (this.activeRun) throw new Error('Wait for the current test before switching providers.');
-            if (typeof message.provider !== 'string' || !(message.provider in providers))
-              throw new Error('Unknown model provider.');
-            const config = vscode.workspace.getConfiguration('testscribe');
-            const scoped = config.inspect<string>('provider');
-            await config.update('provider', message.provider,
-              scoped?.workspaceValue !== undefined ? vscode.ConfigurationTarget.Workspace : vscode.ConfigurationTarget.Global);
+          case 'modelChanged': {
+            if (this.activeRun) throw new Error('Wait for the current test before switching models.');
+            const model = typeof message.model === 'string' ? message.model.trim() : '';
+            await this.chooseModel(model);
             this.post({ type: 'provider', ...this.providerView() });
             break;
+          }
           case 'run':
             await this.run({ url: String(message.url ?? '').trim(), test: String(message.test ?? '').trim(),
-              folder: vscode.workspace.workspaceFolders?.[0] });
+              folder: vscode.workspace.workspaceFolders?.[0] }, String(message.model ?? '').trim());
             break;
           case 'cancel':
             this.activeRun?.kill();
@@ -178,12 +193,67 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
     void this.view?.webview.postMessage(message);
   }
 
-  private providerView(): { provider: ProviderName; model: string } {
-    const { provider, model } = providerSettings(vscode.workspace.getConfiguration('testscribe'));
-    return { provider, model: model || 'Configure model in settings' };
+  private selectedModel(provider: ProviderName): string {
+    const saved = this.context.globalState.get<Record<string, string>>('selectedModels', {});
+    return saved[provider]?.trim() || providers[provider].model;
   }
 
-  refreshProvider(): void { this.post({ type: 'provider', ...this.providerView() }); }
+  private async chooseModel(model: string): Promise<void> {
+    const { provider } = providerSettings(vscode.workspace.getConfiguration('testscribe'));
+    if (!model || model.length > 200) throw new Error('Choose a model in Chat before running the test.');
+    if (provider !== 'custom' && !this.providerView().models.includes(model))
+      throw new Error('Choose a model from the provider list.');
+    const saved = this.context.globalState.get<Record<string, string>>('selectedModels', {});
+    if (saved[provider] !== model)
+      await this.context.globalState.update('selectedModels', { ...saved, [provider]: model });
+  }
+
+  private providerView(): { provider: ProviderName; model: string; models: string[]; modelStatus: string } {
+    const { provider } = providerSettings(vscode.workspace.getConfiguration('testscribe'));
+    const model = this.selectedModel(provider);
+    const models = this.modelsByProvider.get(provider) ?? [];
+    return { provider, model, models: [...new Set([model, ...models].filter(Boolean))], modelStatus: this.modelStatus };
+  }
+
+  refreshProvider(): void {
+    if (!this.view) return;
+    this.modelStatus = 'Loading models…';
+    this.post({ type: 'provider', ...this.providerView() });
+    void this.refreshModels();
+  }
+
+  private async refreshModels(): Promise<void> {
+    const request = ++this.catalogRequest;
+    const { provider, baseUrl, keyName } = providerSettings(vscode.workspace.getConfiguration('testscribe'));
+    const key = await this.context.secrets.get(`testscribe.${keyName}`)
+      || process.env[keyName] || dotEnvKey(vscode.workspace.workspaceFolders?.[0], keyName);
+    if (request !== this.catalogRequest) return;
+    if (!key || !baseUrl) {
+      this.modelStatus = key ? 'Set a base URL in settings to list models.' : `Set ${keyName} to list models.`;
+      this.post({ type: 'provider', ...this.providerView() });
+      return;
+    }
+    try {
+      const response = await fetch(`${baseUrl.replace(/\/+$/, '')}/models`, {
+        headers: { Authorization: `Bearer ${key}` }, signal: AbortSignal.timeout(8000),
+      });
+      if (!response.ok) throw new Error(`Model catalog returned HTTP ${response.status}`);
+      const body: unknown = await response.json();
+      if (!body || typeof body !== 'object' || !('data' in body) || !Array.isArray(body.data))
+        throw new Error('Model catalog returned an unexpected format');
+      const models = body.data.map((item: unknown) =>
+        item && typeof item === 'object' && 'id' in item && typeof item.id === 'string' ? item.id : '')
+        .filter((id: string) => Boolean(id)).slice(0, 200).sort();
+      if (!models.length) throw new Error('No models were listed');
+      if (request !== this.catalogRequest) return;
+      this.modelsByProvider.set(provider, models);
+      this.modelStatus = `${models.length} models from ${provider}`;
+    } catch (error) {
+      if (request !== this.catalogRequest) return;
+      this.modelStatus = `Could not load models: ${error instanceof Error ? error.message : String(error)}`;
+    }
+    this.post({ type: 'provider', ...this.providerView() });
+  }
 
   private add(entry: ChatEntry): void {
     this.entries.push(entry);
@@ -207,7 +277,7 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
 
   async setApiKey(): Promise<void> {
     const keyName = providerSettings(vscode.workspace.getConfiguration('testscribe')).keyName;
-    await this.promptKey(keyName);
+    if (await this.promptKey(keyName)) this.refreshProvider();
   }
 
   async openLastReport(): Promise<void> {
@@ -236,27 +306,23 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
     this.post({ type: 'notice', text: `Saved .testscribe/${name}.json` });
   }
 
-  private async run(request: RunRequest): Promise<void> {
+  private async run(request: RunRequest, requestedModel?: string): Promise<void> {
     if (this.activeRun) { this.post({ type: 'notice', text: 'A test is already running. Cancel it or wait for the result.' }); return; }
     if (!validUrl(request.url) || !request.test) {
       this.post({ type: 'notice', text: 'Enter a full http(s) website URL and a test with an expected result.' });
       return;
     }
+    if (requestedModel !== undefined) await this.chooseModel(requestedModel);
     const folder = request.folder ?? vscode.workspace.workspaceFolders?.[0];
     const config = vscode.workspace.getConfiguration('testscribe');
-    const { provider, keyName, modelOverride, baseUrlOverride, keyOverride } = providerSettings(config);
-    if (provider === 'custom' && (!modelOverride || !baseUrlOverride)) {
-      this.post({ type: 'notice', text: 'Custom provider needs a model and base URL in TestScribe settings.' });
+    const { provider, keyName, baseUrlOverride, keyOverride } = providerSettings(config);
+    const model = this.selectedModel(provider);
+    if (provider === 'custom' && (!model || !baseUrlOverride)) {
+      this.post({ type: 'notice', text: 'Custom provider needs a model in Chat and a base URL in TestScribe settings.' });
       return;
     }
     let secret = await this.context.secrets.get(`testscribe.${keyName}`);
-    const dotEnv = path.join(folder?.uri.fsPath ?? path.dirname(request.caseFile ?? ''), '.env');
-    const hasDotEnv = fs.existsSync(dotEnv) && fs.readFileSync(dotEnv, 'utf8').split(/\r?\n/)
-      .some(line => {
-        const entry = /^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/.exec(line);
-        return entry?.[1] === keyName && Boolean(entry[2].trim() && entry[2].trim() !== "''" && entry[2].trim() !== '""');
-      });
-    if (!secret && !process.env[keyName] && !hasDotEnv) {
+    if (!secret && !process.env[keyName] && !dotEnvKey(folder, keyName)) {
       const choice = await vscode.window.showWarningMessage(`${keyName} is missing.`, 'Set API Key');
       if (choice !== 'Set API Key') return;
       secret = await this.promptKey(keyName);
@@ -274,8 +340,7 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
     try {
       await vscode.workspace.fs.createDirectory(runDir);
       const args = ['run', '--json', '--output-dir', runDir.fsPath,
-        '--provider', provider];
-      if (modelOverride) args.push('--model', modelOverride);
+        '--provider', provider, '--model', model];
       if (baseUrlOverride) args.push('--base-url', baseUrlOverride);
       if (keyOverride) args.push('--api-key-env', keyOverride);
       if (request.caseFile) args.push('--case-file', request.caseFile);
@@ -342,8 +407,8 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
     <div class="target-wrap">
       <label for="target">TEST SITE</label>
       <div class="target-row"><span aria-hidden="true">◎</span><input id="target" type="url" placeholder="https://your-app.com" spellcheck="false" autocomplete="url"></div>
-      <div class="provider-row"><label for="provider">PROVIDER</label><select id="provider" aria-label="Model provider"><option value="bharatcode">BharatCode</option><option value="gemini">Gemini</option><option value="groq">Groq</option><option value="custom">Custom</option></select></div>
-      <div id="model" class="model-line"></div>
+      <div class="model-row"><label for="model">MODEL</label><select id="model" aria-label="Model"></select><input id="customModel" class="hidden" type="text" aria-label="Custom model ID" placeholder="Model ID" spellcheck="false"></div>
+      <div id="modelStatus" class="model-line"></div>
     </div>
     <main id="conversation" class="conversation" aria-live="polite"></main>
     <footer class="composer-wrap">
