@@ -32,6 +32,10 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px
 .target-row span { color: var(--accent-bright); font-size: 18px; line-height: 0; }
 .target-row input { width: 100%; min-width: 0; border: 0; outline: 0; background: transparent; color: var(--vscode-input-foreground); font-size: 12px; }
 .target-row input::placeholder, textarea::placeholder { color: var(--vscode-input-placeholderForeground); }
+.provider-row { display: flex; align-items: center; gap: 10px; margin-top: 11px; }
+.target-wrap .provider-row label { margin: 0; flex: none; }
+.provider-row select { min-width: 0; flex: 1; padding: 5px 7px; border: 1px solid var(--vscode-input-border, var(--line)); border-radius: 6px; background: var(--vscode-dropdown-background); color: var(--vscode-dropdown-foreground); font-size: 11px; }
+.provider-row select:focus { outline: 1px solid var(--vscode-focusBorder); }
 .model-line { margin-top: 8px; color: var(--muted); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .model-line::before { content: '●'; color: #63c89a; font-size: 9px; margin-right: 6px; }
 

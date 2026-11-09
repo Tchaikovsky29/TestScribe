@@ -23,6 +23,27 @@ type ChatEntry =
 
 type RunRequest = { url: string; test: string; caseFile?: string; folder?: vscode.WorkspaceFolder };
 
+const providers = {
+  bharatcode: { model: 'qwen-3.8-27b', key: 'BHARATCODE_API_KEY' },
+  gemini: { model: 'gemini-3.1-flash-lite', key: 'GEMINI_API_KEY' },
+  groq: { model: 'openai/gpt-oss-120b', key: 'GROQ_API_KEY' },
+  custom: { model: '', key: 'OPENAI_API_KEY' },
+} as const;
+type ProviderName = keyof typeof providers;
+
+function providerSettings(config: vscode.WorkspaceConfiguration): {
+  provider: ProviderName; model: string; keyName: string; modelOverride: string; baseUrlOverride: string; keyOverride: string;
+} {
+  const selected = config.get<string>('provider', 'bharatcode');
+  if (!(selected in providers)) throw new Error(`Unknown model provider: ${selected}`);
+  const provider = selected as ProviderName;
+  const modelOverride = config.get<string>('model', '').trim();
+  const baseUrlOverride = config.get<string>('baseUrl', '').trim();
+  const keyOverride = config.get<string>('apiKeyEnv', '').trim();
+  return { provider, model: modelOverride || providers[provider].model,
+    keyName: keyOverride || providers[provider].key, modelOverride, baseUrlOverride, keyOverride };
+}
+
 function executable(folder: vscode.WorkspaceFolder | undefined): string {
   const configured = vscode.workspace.getConfiguration('testscribe').get<string>('cliPath', '').trim();
   if (configured) return configured;
@@ -93,8 +114,17 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
         switch (message.type) {
           case 'ready':
             this.post({ type: 'init', entries: this.entries, url: this.currentUrl,
-              model: vscode.workspace.getConfiguration('testscribe').get<string>('model', 'qwen-3.8-27b'),
-              busy: Boolean(this.activeRun) });
+              ...this.providerView(), busy: Boolean(this.activeRun) });
+            break;
+          case 'providerChanged':
+            if (this.activeRun) throw new Error('Wait for the current test before switching providers.');
+            if (typeof message.provider !== 'string' || !(message.provider in providers))
+              throw new Error('Unknown model provider.');
+            const config = vscode.workspace.getConfiguration('testscribe');
+            const scoped = config.inspect<string>('provider');
+            await config.update('provider', message.provider,
+              scoped?.workspaceValue !== undefined ? vscode.ConfigurationTarget.Workspace : vscode.ConfigurationTarget.Global);
+            this.post({ type: 'provider', ...this.providerView() });
             break;
           case 'run':
             await this.run({ url: String(message.url ?? '').trim(), test: String(message.test ?? '').trim(),
@@ -148,6 +178,13 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
     void this.view?.webview.postMessage(message);
   }
 
+  private providerView(): { provider: ProviderName; model: string } {
+    const { provider, model } = providerSettings(vscode.workspace.getConfiguration('testscribe'));
+    return { provider, model: model || 'Configure model in settings' };
+  }
+
+  refreshProvider(): void { this.post({ type: 'provider', ...this.providerView() }); }
+
   private add(entry: ChatEntry): void {
     this.entries.push(entry);
     this.post({ type: 'entry', entry });
@@ -169,7 +206,7 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
   }
 
   async setApiKey(): Promise<void> {
-    const keyName = vscode.workspace.getConfiguration('testscribe').get<string>('apiKeyEnv', 'BHARATCODE_API_KEY');
+    const keyName = providerSettings(vscode.workspace.getConfiguration('testscribe')).keyName;
     await this.promptKey(keyName);
   }
 
@@ -207,9 +244,18 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
     }
     const folder = request.folder ?? vscode.workspace.workspaceFolders?.[0];
     const config = vscode.workspace.getConfiguration('testscribe');
-    const keyName = config.get<string>('apiKeyEnv', 'BHARATCODE_API_KEY');
+    const { provider, keyName, modelOverride, baseUrlOverride, keyOverride } = providerSettings(config);
+    if (provider === 'custom' && (!modelOverride || !baseUrlOverride)) {
+      this.post({ type: 'notice', text: 'Custom provider needs a model and base URL in TestScribe settings.' });
+      return;
+    }
     let secret = await this.context.secrets.get(`testscribe.${keyName}`);
-    const hasDotEnv = fs.existsSync(path.join(folder?.uri.fsPath ?? path.dirname(request.caseFile ?? ''), '.env'));
+    const dotEnv = path.join(folder?.uri.fsPath ?? path.dirname(request.caseFile ?? ''), '.env');
+    const hasDotEnv = fs.existsSync(dotEnv) && fs.readFileSync(dotEnv, 'utf8').split(/\r?\n/)
+      .some(line => {
+        const entry = /^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/.exec(line);
+        return entry?.[1] === keyName && Boolean(entry[2].trim() && entry[2].trim() !== "''" && entry[2].trim() !== '""');
+      });
     if (!secret && !process.env[keyName] && !hasDotEnv) {
       const choice = await vscode.window.showWarningMessage(`${keyName} is missing.`, 'Set API Key');
       if (choice !== 'Set API Key') return;
@@ -228,9 +274,10 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
     try {
       await vscode.workspace.fs.createDirectory(runDir);
       const args = ['run', '--json', '--output-dir', runDir.fsPath,
-        '--model', config.get<string>('model', 'qwen-3.8-27b'),
-        '--base-url', config.get<string>('baseUrl', 'https://bharatcode.ai/api/model/v1'),
-        '--api-key-env', keyName];
+        '--provider', provider];
+      if (modelOverride) args.push('--model', modelOverride);
+      if (baseUrlOverride) args.push('--base-url', baseUrlOverride);
+      if (keyOverride) args.push('--api-key-env', keyOverride);
       if (request.caseFile) args.push('--case-file', request.caseFile);
       else args.push('--url', request.url, '--test', request.test);
       if (config.get<boolean>('headed', false)) args.push('--headed');
@@ -295,6 +342,7 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
     <div class="target-wrap">
       <label for="target">TEST SITE</label>
       <div class="target-row"><span aria-hidden="true">◎</span><input id="target" type="url" placeholder="https://your-app.com" spellcheck="false" autocomplete="url"></div>
+      <div class="provider-row"><label for="provider">PROVIDER</label><select id="provider" aria-label="Model provider"><option value="bharatcode">BharatCode</option><option value="gemini">Gemini</option><option value="groq">Groq</option><option value="custom">Custom</option></select></div>
       <div id="model" class="model-line"></div>
     </div>
     <main id="conversation" class="conversation" aria-live="polite"></main>
@@ -323,6 +371,9 @@ export function activate(context: vscode.ExtensionContext): void {
   const chat = new ChatViewProvider(context, output);
   context.subscriptions.push(output, vscode.window.registerWebviewViewProvider('testscribe.chat', chat, {
     webviewOptions: { retainContextWhenHidden: true },
+  }));
+  context.subscriptions.push(vscode.workspace.onDidChangeConfiguration(event => {
+    if (event.affectsConfiguration('testscribe')) chat.refreshProvider();
   }));
 
   context.subscriptions.push(vscode.commands.registerCommand('testscribe.openChat', () => chat.reveal()));

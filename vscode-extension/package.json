@@ -2,7 +2,7 @@
   "name": "testscribe",
   "displayName": "TestScribe",
   "description": "Chat with an AI browser tester inside VS Code",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "publisher": "testscribe",
   "license": "MIT",
   "repository": {
@@ -98,20 +98,31 @@
           "default": "",
           "description": "Path to the testscribe CLI. Leave empty to use a workspace .venv or PATH."
         },
+        "testscribe.provider": {
+          "type": "string",
+          "enum": [
+            "bharatcode",
+            "gemini",
+            "groq",
+            "custom"
+          ],
+          "default": "bharatcode",
+          "description": "Model provider preset. Custom requires a model and base URL in TestScribe settings."
+        },
         "testscribe.model": {
           "type": "string",
-          "default": "qwen-3.8-27b",
-          "description": "OpenAI-compatible model ID."
+          "default": "",
+          "description": "Optional model ID override for the selected provider; required for Custom."
         },
         "testscribe.baseUrl": {
           "type": "string",
-          "default": "https://bharatcode.ai/api/model/v1",
-          "description": "OpenAI-compatible API base URL."
+          "default": "",
+          "description": "Optional OpenAI-compatible API base URL override; required for Custom."
         },
         "testscribe.apiKeyEnv": {
           "type": "string",
-          "default": "BHARATCODE_API_KEY",
-          "description": "Environment variable name for the API key. Use Set API Key to store it in VS Code Secret Storage."
+          "default": "",
+          "description": "Optional API key environment variable override. Use Set API Key to store it in VS Code Secret Storage."
         },
         "testscribe.headed": {
           "type": "boolean",

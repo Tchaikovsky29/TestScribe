@@ -14,9 +14,9 @@ python -m playwright install chromium
 cp .env.example .env
 ```
 
-Set `BHARATCODE_API_KEY` in `.env`. The default model is BharatCode `qwen-3.8-27b`.
+Set a key for your chosen provider in `.env`. BharatCode `qwen-3.8-27b` is the default. `--provider gemini` and `--provider groq` select their endpoints, default models, and key names automatically. You can override those values with `--base-url`, `--model`, and `--api-key-env`. For an arbitrary OpenAI-compatible endpoint, use `--provider custom` with `--base-url` and `--model` (`OPENAI_API_KEY` is the default key name).
 
-**No paid subscription option:** Create a free Gemini API key in [Google AI Studio](https://aistudio.google.com/app/apikey), put it in `.env` as `GEMINI_API_KEY`, and pass the Gemini settings shown below. Google's [pricing page](https://ai.google.dev/gemini-api/docs/pricing) lists `gemini-3.1-flash-lite` in its free tier, and its [compatibility guide](https://ai.google.dev/gemini-api/docs/openai) documents the OpenAI-compatible endpoint. This configuration passed four live positive cases across three sites and failed one deliberately false case on 2026-11-07. These were single runs, so results may vary with model output and live-site changes. Free-tier availability and rate limits vary by account and region.
+**No paid subscription option:** Create a free Gemini API key in [Google AI Studio](https://aistudio.google.com/app/apikey), put it in `.env` as `GEMINI_API_KEY`, and run with `--provider gemini`. Google's [pricing page](https://ai.google.dev/gemini-api/docs/pricing) lists `gemini-3.1-flash-lite` in its free tier, and its [compatibility guide](https://ai.google.dev/gemini-api/docs/openai) documents the OpenAI-compatible endpoint. This configuration passed four live positive cases across three sites and failed one deliberately false case on 2026-11-07. These were single runs, so results may vary with model output and live-site changes. Free-tier availability and rate limits vary by account and region.
 
 For the agent MCP server, use Python 3.11+ and install the optional extra: `pip install -e '.[agent]'`. The CLI alone still supports Python 3.10+.
 
@@ -57,16 +57,16 @@ testscribe run \
 
 Three four-action cases across PHPTRAVELS, Selenium's web form, and The Internet are listed in [`smoke-cases.json`](smoke-cases.json). Run any case by passing its `url` and `test` values to `testscribe run`. Results depend on the live sites and model responses.
 
-Gemini free-tier example:
+Gemini example (with `GEMINI_API_KEY` in `.env`):
 
 ```bash
 testscribe run \
   --url https://www.selenium.dev/selenium/web/web-form.html \
   --test 'Enter TestScribe into the Text input field, submit the form, and verify that Received! appears.' \
-  --base-url https://generativelanguage.googleapis.com/v1beta/openai/ \
-  --model gemini-3.1-flash-lite \
-  --api-key-env GEMINI_API_KEY
+  --provider gemini
 ```
+
+Groq example (with `GROQ_API_KEY` in `.env`): `testscribe run --provider groq --case-file examples/web-form-pass.json`. The preset uses Groq's [OpenAI-compatible endpoint](https://console.groq.com/docs/openai) and [GPT OSS 120B model](https://console.groq.com/docs/model/openai/gpt-oss-120b). Provider presets select connection settings; model behavior still varies, so check the saved report.
 
 For credentials or other variables, create an ignored file such as `demo.secrets.json` containing a JSON object: `{"CUSTOMER_EMAIL":"customer@example.com","_PASSWORD":"admin123"}`. Refer to them in the test as `{{CUSTOMER_EMAIL}}` and `{{_PASSWORD}}`, and pass `--vars-file demo.secrets.json`. A key starting with `_` marks its value as sensitive: TestScribe substitutes it locally when filling the browser, replaces exact matches (including URL-encoded forms) before model requests and in reports, and does not save screenshots, traces, or video by default. Unmarked values, such as a username, can appear in model requests. Run `testscribe --vars-file --help` for the format guide.
 
@@ -84,7 +84,7 @@ The [portable TestScribe agent skill](integrations/agent-skills/testscribe/SKILL
 
 After starting a local web app, an agent can run `testscribe run --url http://localhost:3000 --test 'Open the contact form, submit it empty, and verify that an email error appears.' --json`, inspect the returned check and evidence, change the app if needed, and rerun the same case.
 
-For an MCP-capable agent, register a local stdio server with command `testscribe-mcp` and environment variable `BHARATCODE_API_KEY`. The server provides `start_test`, `get_test_status`, and `get_test_result`. A long test returns a run ID immediately, so the agent can poll and receive the same checked verdict as `report.json`. Pass `no_pass_screenshot: true` to `start_test` to skip pass screenshots. Its artifacts default to the system temporary directory under `testscribe-runs/`; set `TESTSCRIBE_ARTIFACTS_DIR` to choose another parent directory. Keep keys in the agent's private MCP configuration, not in the repository.
+For an MCP-capable agent, register a local stdio server with command `testscribe-mcp` and the API key environment variable for your chosen provider. The server provides `start_test`, `get_test_status`, and `get_test_result`. Pass `provider: "gemini"` or `provider: "groq"` to `start_test` for those presets. A long test returns a run ID immediately, so the agent can poll and receive the same checked verdict as `report.json`. Pass `no_pass_screenshot: true` to skip pass screenshots. Its artifacts default to the system temporary directory under `testscribe-runs/`; set `TESTSCRIBE_ARTIFACTS_DIR` to choose another parent directory. Keep keys in the agent's private MCP configuration, not in the repository.
 
 ## VS Code
 

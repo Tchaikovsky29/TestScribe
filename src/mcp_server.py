@@ -39,6 +39,7 @@ class JobManager:
         model: str | None = None,
         base_url: str | None = None,
         api_key_env: str | None = None,
+        provider: str | None = None,
         no_pass_screenshot: bool = False,
     ) -> dict[str, str]:
         if case_file:
@@ -65,7 +66,7 @@ class JobManager:
             args += ["--url", url or "", "--test", test or ""]
         if vars_file:
             args += ["--vars-file", str(Path(vars_file).resolve())]
-        for flag, value in (("--model", model), ("--base-url", base_url), ("--api-key-env", api_key_env)):
+        for flag, value in (("--provider", provider), ("--model", model), ("--base-url", base_url), ("--api-key-env", api_key_env)):
             if value:
                 args += [flag, value]
         if no_pass_screenshot:
@@ -137,11 +138,12 @@ def main() -> None:
         model: str | None = None,
         base_url: str | None = None,
         api_key_env: str | None = None,
+        provider: str | None = None,
         no_pass_screenshot: bool = False,
     ) -> dict[str, str]:
         """Start a browser test and return a run ID promptly; provide a case file or URL and test."""
         return jobs.start(url=url, test=test, case_file=case_file, vars_file=vars_file,
-                          model=model, base_url=base_url, api_key_env=api_key_env,
+                          model=model, base_url=base_url, api_key_env=api_key_env, provider=provider,
                           no_pass_screenshot=no_pass_screenshot)
 
     @server.tool()

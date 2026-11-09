@@ -4,6 +4,7 @@
   const target = document.getElementById('target');
   const prompt = document.getElementById('prompt');
   const model = document.getElementById('model');
+  const provider = document.getElementById('provider');
   const send = document.getElementById('send');
   const save = document.getElementById('save');
   const cancel = document.getElementById('cancel');
@@ -183,6 +184,7 @@
     send.classList.toggle('hidden', busy);
     cancel.classList.toggle('hidden', !busy);
     save.disabled = busy;
+    provider.disabled = busy;
   }
 
   function submit() {
@@ -208,9 +210,13 @@
       if (message.url) target.value = message.url;
       const lastUser = Array.isArray(message.entries) ? [...message.entries].reverse().find(entry => entry.kind === 'user') : undefined;
       if (lastUser) lastTest = lastUser.text;
+      provider.value = message.provider || 'bharatcode';
       model.textContent = message.model ? 'Model · ' + message.model : '';
       setBusy(message.busy);
       scrollToEnd();
+    } else if (message.type === 'provider') {
+      provider.value = message.provider || 'bharatcode';
+      model.textContent = message.model ? 'Model · ' + message.model : '';
     } else if (message.type === 'entry') {
       document.getElementById('welcome')?.remove();
       if (message.entry.kind === 'user') lastTest = message.entry.text;
@@ -227,6 +233,7 @@
   });
 
   send.addEventListener('click', submit);
+  provider.addEventListener('change', () => vscode.postMessage({ type: 'providerChanged', provider: provider.value }));
   cancel.addEventListener('click', () => vscode.postMessage({ type: 'cancel' }));
   save.addEventListener('click', () => vscode.postMessage({ type: 'saveCase', url: target.value, test: prompt.value.trim() || lastTest }));
   document.getElementById('settings').addEventListener('click', () => vscode.postMessage({ type: 'openSettings' }));

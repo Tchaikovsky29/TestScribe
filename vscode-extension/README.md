@@ -4,17 +4,17 @@ Describe a browser test in the TestScribe chat sidebar, run it, and inspect the 
 
 ## Prerequisites
 
-Install [TestScribe](https://github.com/Tchaikovsky29/TestScribe#setup), install Playwright Chromium, and configure a BharatCode API key (or another OpenAI-compatible provider). The extension does not bundle Python, Chromium, or model access.
+Install [TestScribe](https://github.com/Tchaikovsky29/TestScribe#setup), install Playwright Chromium, and configure an API key for BharatCode, Gemini, or Groq. The extension does not bundle Python, Chromium, or model access.
 
 ## Use
 
 1. Open the TestScribe activity bar icon, or run **TestScribe: Open Chat** from the Command Palette.
-2. Enter the website URL and a plain-English test with an expected result. Press **Enter** or **Run**. The chat shows progress, the checked `PASS`, `FAIL`, or `BLOCKED` verdict, browser actions, assertions, and report links.
+2. Choose **BharatCode**, **Gemini**, or **Groq** in the provider menu, then enter the website URL and a plain-English test with an expected result. Press **Enter** or **Run**. The chat shows progress, the checked `PASS`, `FAIL`, or `BLOCKED` verdict, browser actions, assertions, and report links.
 3. Use **Save** to put the current test in `.testscribe/<name>.json`. Saved cases also run through **TestScribe: Run Test Case** from a JSON editor or Explorer menu.
 
-If there is no workspace `.env` or configured environment variable, use **TestScribe: Set API Key**. The key is stored in VS Code Secret Storage. The gear button opens provider and browser settings. Turn on `testscribe.headed` to watch Chromium during a run.
+Put the matching key (`BHARATCODE_API_KEY`, `GEMINI_API_KEY`, or `GROQ_API_KEY`) in the workspace `.env`, or use **TestScribe: Set API Key**. The command stores the key for the selected provider in VS Code Secret Storage. The gear button opens provider and browser settings. Turn on `testscribe.headed` to watch Chromium during a run.
 
-The extension uses the workspace `.venv/bin/testscribe` (or `.venv/Scripts/testscribe.exe` on Windows) when present, then falls back to `testscribe` on `PATH`. Set `testscribe.cliPath` if installed elsewhere. Configure `testscribe.model`, `testscribe.baseUrl`, and `testscribe.apiKeyEnv` to use another provider. For Gemini, use `gemini-3.1-flash-lite`, `https://generativelanguage.googleapis.com/v1beta/openai/`, and `GEMINI_API_KEY` respectively. The chat conversation is kept in memory for the current VS Code session.
+The extension uses the workspace `.venv/bin/testscribe` (or `.venv/Scripts/testscribe.exe` on Windows) when present, then falls back to `testscribe` on `PATH`. Set `testscribe.cliPath` if installed elsewhere. The provider menu selects the endpoint, default model, and key name. `testscribe.model`, `testscribe.baseUrl`, and `testscribe.apiKeyEnv` are optional overrides; clear old overrides to use a preset. Choose **Custom** and set at least a model and base URL for another OpenAI-compatible provider. The chat conversation is kept in memory for the current VS Code session.
 
 Run artifacts are stored in VS Code's extension storage, outside the workspace. Passing runs save a final-page screenshot by default; set `testscribe.passScreenshot` to `false` to turn it off. An optional `vars_file` in a case should point to an ignored local file. Prefix sensitive variable names with `_`; the Python runner redacts exact matches in model requests and reports and skips screenshots and traces for those runs by default. Unmarked values and explicitly enabled artifacts can expose typed values. See the root README.
 

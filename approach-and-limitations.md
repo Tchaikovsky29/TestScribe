@@ -2,7 +2,7 @@
 
 ## Approach
 
-1. **Read the test.** `testscribe run` accepts a starting URL and a plain-English test case, or `--case-file` with `url`, `test`, and optional `vars_file`. The CLI loads the selected model provider, variable values, and report directory. Variable names starting with `_` mark values to substitute locally and redact before model requests and report writes. The VS Code extension and MCP server invoke this same CLI.
+1. **Read the test.** `testscribe run` accepts a starting URL and a plain-English test case, or `--case-file` with `url`, `test`, and optional `vars_file`. The CLI resolves the selected provider preset (BharatCode, Gemini, or Groq), optional connection overrides, variable values, and report directory. Variable names starting with `_` mark values to substitute locally and redact before model requests and report writes. The VS Code extension and MCP server invoke this same CLI.
 2. **Check and plan.** Before opening a browser, the runner checks that the starting URL responds. It asks the model for an ordered list of action intents and explicit checks, rejects plans without usable checks, and limits a run to 12 actions and 12 model calls.
 3. **Open the page.** Playwright starts Chromium in a fresh browser context and visits the starting URL.
 4. **Observe each step.** Before every planned action, the runner takes a new accessibility snapshot of the current page. For large pages, it keeps navigation controls and relevant named sections to reduce the observation sent to the model.

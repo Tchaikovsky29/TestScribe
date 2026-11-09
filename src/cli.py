@@ -16,6 +16,7 @@ from src.cases import CaseFileError, load_case_file
 from src.reporting import compact_report
 from src.runner import run_case
 from src.secrets import SecretRedactor
+from src.providers import PRESETS, resolve_provider
 
 
 def show_vars_file_help() -> None:
@@ -62,9 +63,11 @@ def main() -> None:
     run.add_argument("--url", help="Starting HTTP(S) URL (use with --test)")
     run.add_argument("--test", help="Plain-English test case (use with --url)")
     run.add_argument("--case-file", type=Path, help="Saved JSON case with url, test, and optional vars_file")
-    run.add_argument("--model", default="qwen-3.8-27b", help="Model ID (default: %(default)s)")
-    run.add_argument("--base-url", default="https://bharatcode.ai/api/model/v1", help="OpenAI-compatible API base URL (default: %(default)s)")
-    run.add_argument("--api-key-env", default="BHARATCODE_API_KEY", help="API key environment variable (default: %(default)s)")
+    run.add_argument("--provider", choices=[*PRESETS, "custom"], default="bharatcode",
+                     help="Use a provider's endpoint, model, and key name (default: %(default)s)")
+    run.add_argument("--model", help="Override the provider's default model ID")
+    run.add_argument("--base-url", help="Override the provider's OpenAI-compatible API base URL")
+    run.add_argument("--api-key-env", help="Override the provider's API key environment variable name")
     run.add_argument("--vars-file", type=Path, help="Ignored local JSON object of placeholder values")
     run.add_argument("--output-dir", type=Path, help="Directory for reports and artifacts (default: artifacts/<timestamp>)")
     run.add_argument("--headed", action="store_true", help="Show the browser window")
@@ -94,10 +97,15 @@ def main() -> None:
         parser.error("--url must be an HTTP(S) URL")
     if args.slow_mo < 0 or args.hold_seconds < 0:
         parser.error("--slow-mo and --hold-seconds must be nonnegative")
+    try:
+        provider = resolve_provider(args.provider, base_url=args.base_url,
+                                    model=args.model, api_key_env=args.api_key_env)
+    except ValueError as exc:
+        parser.error(str(exc))
     load_dotenv(dotenv_path=Path.cwd() / ".env", override=False)
-    api_key = os.getenv(args.api_key_env)
+    api_key = os.getenv(provider.api_key_env)
     if not api_key:
-        parser.error(f"Set {args.api_key_env} in the environment or .env")
+        parser.error(f"Set {provider.api_key_env} in the environment or .env")
     variables: dict[str, str] = {}
     if args.vars_file:
         try:
@@ -116,7 +124,7 @@ def main() -> None:
         parser.error("--record-video with sensitive variables requires --allow-sensitive-artifacts")
 
     output_dir = args.output_dir or Path("artifacts") / datetime.now().strftime("%Y%m%d-%H%M%S-%f")
-    model = ModelClient(api_key=api_key, base_url=args.base_url, model=args.model, redactor=redactor)
+    model = ModelClient(api_key=api_key, base_url=provider.base_url, model=provider.model, redactor=redactor)
     report = run_case(
         url=args.url,
         case=args.test,

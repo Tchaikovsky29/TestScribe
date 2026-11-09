@@ -14,6 +14,22 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from src.cases import CaseFileError, load_case_file
+from src.providers import PRESETS, resolve_provider
+
+
+class ProviderTests(unittest.TestCase):
+    def test_presets_and_overrides(self) -> None:
+        self.assertEqual(set(PRESETS), {"bharatcode", "gemini", "groq"})
+        self.assertEqual(resolve_provider("gemini").api_key_env, "GEMINI_API_KEY")
+        self.assertEqual(resolve_provider("groq").model, "openai/gpt-oss-120b")
+        selected = resolve_provider("gemini", model="different-model", api_key_env="ANOTHER_KEY")
+        self.assertEqual(selected.model, "different-model")
+        self.assertEqual(selected.api_key_env, "ANOTHER_KEY")
+        self.assertEqual(resolve_provider("custom", base_url="http://localhost:1234/v1", model="local").api_key_env,
+                         "OPENAI_API_KEY")
+        with self.assertRaisesRegex(ValueError, "requires --base-url and --model"):
+            resolve_provider("custom", model="local")
+
 
 
 class DemoHandler(BaseHTTPRequestHandler):
@@ -141,6 +157,20 @@ class AgentFlowTests(unittest.TestCase):
         self.assertFalse(summary["checks"][0]["passed"])
         self.assertTrue(Path(summary["artifacts"]["screenshot"]).is_file())
 
+    def test_gemini_preset_selects_its_key_with_endpoint_override(self) -> None:
+        case = self.case("Enter Demo into Text input, submit the form, and verify Received! appears.")
+        environment = self.environment.copy()
+        environment.pop("TEST_STUB_KEY")
+        environment["GEMINI_API_KEY"] = "local-test-key"
+        result = subprocess.run(
+            [sys.executable, "-m", "src", "run", "--case-file", str(case), "--json",
+             "--provider", "gemini", "--base-url", self.base + "/v1", "--model", "stub",
+             "--output-dir", str(self.root / "gemini-preset")],
+            env=environment, capture_output=True, text=True, timeout=30,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(result.stdout)["status"], "PASS")
+
     def test_bad_case_fails_before_model_or_browser(self) -> None:
         path = self.root / "bad.json"
         path.write_text('{"url":"/relative","test":"verify something"}', encoding="utf-8")
@@ -216,13 +246,12 @@ class AgentFlowTests(unittest.TestCase):
         command = str(Path(sys.executable).parent / ("testscribe-mcp.exe" if os.name == "nt" else "testscribe-mcp"))
 
         async def check() -> None:
-            async with Client(StdioServerParameters(command=command, args=[], env={"TEST_STUB_KEY": "local-test-key"})) as client:
+            async with Client(StdioServerParameters(command=command, args=[], env={"GEMINI_API_KEY": "local-test-key"})) as client:
                 listing = await client.list_tools()
                 self.assertEqual({tool.name for tool in listing.tools},
                                  {"start_test", "get_test_status", "get_test_result"})
                 started = await client.call_tool("start_test", {
-                    "case_file": str(case), "model": "stub", "base_url": self.base + "/v1",
-                    "api_key_env": "TEST_STUB_KEY",
+                    "case_file": str(case), "provider": "gemini", "model": "stub", "base_url": self.base + "/v1",
                 })
                 start = started.structured_content
                 self.assertIsNotNone(start)
@@ -243,8 +272,8 @@ class AgentFlowTests(unittest.TestCase):
                 self.assertEqual(json.loads(Path(result["report_path"]).read_text())["status"], "PASS")
 
                 started = await client.call_tool("start_test", {
-                    "case_file": str(case), "model": "stub", "base_url": self.base + "/v1",
-                    "api_key_env": "TEST_STUB_KEY", "no_pass_screenshot": True,
+                    "case_file": str(case), "provider": "gemini", "model": "stub", "base_url": self.base + "/v1",
+                    "no_pass_screenshot": True,
                 })
                 no_image_run_id = started.structured_content["run_id"]
                 for _ in range(100):
