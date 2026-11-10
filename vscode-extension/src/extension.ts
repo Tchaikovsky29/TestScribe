@@ -25,7 +25,7 @@ type RunRequest = { url: string; test: string; caseFile?: string; folder?: vscod
 
 const providers = {
   bharatcode: { model: 'qwen-3.8-27b', key: 'BHARATCODE_API_KEY', baseUrl: 'https://bharatcode.ai/api/model/v1' },
-  gemini: { model: 'gemini-3.1-flash-lite', key: 'GEMINI_API_KEY', baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai/' },
+  gemini: { model: 'gemini-3.5-flash-lite', key: 'GEMINI_API_KEY', baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai/' },
   groq: { model: 'openai/gpt-oss-120b', key: 'GROQ_API_KEY', baseUrl: 'https://api.groq.com/openai/v1' },
   custom: { model: '', key: 'OPENAI_API_KEY', baseUrl: '' },
 } as const;

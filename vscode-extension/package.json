@@ -1,9 +1,21 @@
 {
   "name": "testscribe",
   "displayName": "TestScribe",
-  "description": "Chat with an AI browser tester inside VS Code",
-  "version": "0.2.3",
-  "publisher": "testscribe",
+  "description": "Run plain-English browser tests with checked Playwright results",
+  "version": "0.2.4",
+  "publisher": "AravBhardwaj",
+  "icon": "resources/marketplace-icon.png",
+  "galleryBanner": {
+    "color": "#20284C",
+    "theme": "dark"
+  },
+  "keywords": [
+    "browser testing",
+    "Playwright",
+    "AI testing",
+    "natural language",
+    "test automation"
+  ],
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -135,7 +147,7 @@
   "devDependencies": {
     "@types/node": "^22.0.0",
     "@types/vscode": "^1.90.0",
-    "@vscode/vsce": "^3.6.0",
+    "@vscode/vsce": "^4.1.0",
     "typescript": "^5.8.0"
   }
 }

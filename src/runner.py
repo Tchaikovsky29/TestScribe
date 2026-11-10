@@ -23,23 +23,35 @@ Return only one JSON object with:
   "checks": a list of checks, each one of:
     {"kind":"text_visible","text":"exact words to find"}
     {"kind":"text_absent","text":"exact words that must not appear"}
-    {"kind":"control_visible","text":"words describing a visible interactive option"}
-    {"kind":"role_visible","role":"heading|button|link|textbox|tab","name":"accessible name"}
+    {"kind":"control_visible","text":"short identifying words for an unnamed interactive control"}
+    {"kind":"role_visible","role":"heading|button|link|textbox|tab","name":"control label stated in the test"}
     {"kind":"url_contains","text":"URL substring"}
 Preserve explicit expected words from the test. Include ONLY checks explicitly requested
 by the test. A URL check is allowed only when the test states the expected URL/path.
+Do not turn entered values, selected suggestions, or clicked controls into final checks
+unless the test explicitly asks to verify them after the actions.
+When route, city, or form values merely identify which result to load, do not add
+separate text checks for those values. For example, "search flights from DEL to
+PNQ and verify results with Book Now buttons load" needs the Book Now button
+check; it does not need DEL or PNQ text checks on the results page.
 The browser starts at START URL already; do not add a navigation action for it.
 Keep every explicit user interaction as a separate action in the stated order, even
 when a later control is already visible. For example, "Open Menu, choose Services"
 requires both "Open Menu" and "Choose Services"; do not skip the menu step.
+"Open Departure Date and choose 10 November" requires separate "Open Departure
+Date" and "Choose 10 November" actions. Each action must need only one browser
+click, fill, select, or press.
 For a test that only says verify, produce no actions. Do not add scrolling or searching
 as actions; Playwright checks find elements throughout the page.
 Make a separate check for each distinct expected outcome joined by "and".
-For an expected control or option whose exact label is unknown, use control_visible
-with descriptive words copied from the case, such as "flight search". The browser
-will match those words against actual interactive controls after navigation.
-When using role_visible, its name must use words from the test case; never invent an
-exact label on a page that has not been observed yet.
+When the test names an expected control, use role_visible with only that control's
+label as name. Do not include surrounding context such as where it appears. For
+example, "verify Book Now buttons appear in flight results" becomes
+{"kind":"role_visible","role":"button","name":"Book Now"}.
+For an expected control whose label is unknown, use control_visible with only the
+short identifying words from the case, such as "flight search". Never put a full
+sentence or page context in its text.
+Do not invent an exact label on a page that has not been observed yet.
 Do not turn an expected result into an action.
 Do not invent credentials, URLs, or a weaker check. Use placeholders such as
 {{CUSTOMER_PASSWORD}} when the case names a variable. A test with no check is invalid.
@@ -49,11 +61,15 @@ Example: "Enter Alex into Name, submit, verify Thanks appears" becomes
 
 ACTION_SYSTEM = """You choose ONE browser action for the current intent using only the current-page observation.
 Return only a JSON object. For an element action use:
-{"action":"click|fill|select|press","role":"button|link|textbox|combobox|checkbox|radio|tab|menuitem|option",
+{"action":"click|fill|select|press","role":"button|link|textbox|combobox|checkbox|radio|tab|menuitem|option|cell|text",
  "name":"words from the observed accessible name","section":"optional exact named region or navigation",
  "value":"text for fill/select","key":"Enter for press"}
+For results that are still loading, use {"action":"wait"}; the same intent will be
+reconsidered from a fresh page observation after a short delay.
 Click the observed links and buttons to navigate around the site. Click a menu control,
 then click its visible menu item. Use select ONLY for a native HTML <select> element.
+For custom widgets, click uniquely visible text to open them or choose a suggestion.
+Use role cell for a visible calendar day, and role text only for a click on visible text.
 When MATCHING CONTROLS contains a button or link with the requested words, click it.
 Use {"action":"navigate","url":"https://..."} only when the ORIGINAL TEST contains
 that exact URL. Never infer a path or URL from a page label.
@@ -108,10 +124,21 @@ def make_plan(model: ModelClient, url: str, case: str) -> dict[str, Any]:
     actions, checks = data.get("actions"), data.get("checks")
     if not isinstance(actions, list) or not all(isinstance(item, str) and item.strip() for item in actions):
         raise PlanError("Model plan has invalid actions")
+    actions = [part for action in actions for part in re.split(
+        r"\s+and\s+(?=(?:click|open|choose|select|type|fill|enter|submit|press)\b)",
+        action, flags=re.I,
+    ) if part.strip()]
     if len(actions) > 12:
         raise PlanError("Model plan exceeds 12 actions")
     if not isinstance(checks, list) or not 1 <= len(checks) <= 5:
         raise PlanError("Model plan needs one to five assertions")
+    expectation = re.search(r"\b(?:verify|confirm|ensure|make sure(?: that)?)\b", case, re.I)
+    if expectation:
+        stated_outcome = case[expectation.start():]
+        checks = [check for check in checks if isinstance(check, dict)
+                  and _grounded_words(str(check.get("name") or check.get("text") or ""), stated_outcome)]
+        if not checks:
+            raise PlanError("Model plan did not include the stated final expectation")
     for check in checks:
         if not isinstance(check, dict) or check.get("kind") not in CHECK_KINDS:
             raise PlanError("Model plan contains an unsupported assertion")
@@ -156,10 +183,10 @@ def choose_action(
         + "\nCURRENT PAGE:\n" + observation
     )
     if feedback:
-        prompt += "\nPREVIOUS TARGET ERROR: " + feedback + "\nChoose a different, uniquely named target from the fresh page observation. Copy the full accessible name when needed."
+        prompt += "\nACTION FEEDBACK: " + feedback + "\nChoose a uniquely named target from the fresh page observation. Copy the full accessible name when needed."
     for attempt in range(2):
         data = model.json_response(ACTION_SYSTEM, prompt)
-        if data.get("action") not in {"click", "fill", "select", "press", "navigate"}:
+        if data.get("action") not in {"click", "fill", "select", "press", "navigate", "wait"}:
             raise ModelError(f"Model proposed an unsupported action: {data.get('action')!r}")
         if data["action"] == "navigate" and data.get("url") not in explicit_urls(case):
             fallback = observed_click_for_intent(intent, observation)
@@ -169,7 +196,8 @@ def choose_action(
             return data
         if (
             data["action"] == "fill"
-            and "shown on the page" in case.lower()
+            and "copy" in intent.lower()
+            and "shown on the page" in intent.lower()
             and isinstance(data.get("value"), str)
             and data["value"] not in observation
         ):
@@ -216,7 +244,6 @@ def _control_visible(page: Page, description: str) -> bool:
     words -= {"a", "an", "the", "option", "control", "button", "link", "way", "shown", "visible", "to", "for"}
     if not words:
         return False
-    seen: set[str] = set()
     for role in ("button", "link", "tab", "combobox", "textbox"):
         for item in page.get_by_role(role).all()[:100]:
             if not item.is_visible():
@@ -225,8 +252,7 @@ def _control_visible(page: Page, description: str) -> bool:
             candidate = {word.rstrip("s") for word in re.findall(r"[a-z0-9]+", name.lower())}
             if words <= candidate:
                 return True
-            seen |= words & candidate
-    return words <= seen
+    return False
 
 
 def check_once(page: Page, check: dict[str, str]) -> bool:
@@ -352,17 +378,24 @@ def run_case(
                 page.goto(url, wait_until="domcontentloaded", timeout=30000)
                 for intent in plan["actions"]:
                     feedback = ""
-                    for attempt in range(2):
+                    for attempt in range(3):
                         observation = observe(page, intent)
                         action = choose_action(model, case, intent, observation, report["steps"], feedback)
                         target = f"{action.get('role', '')} {action.get('name', '')}".strip()
                         step = {"instruction": intent, "action": action["action"], "target": target}
                         report["steps"].append(step)
+                        if action["action"] == "wait":
+                            if attempt == 2:
+                                raise ModelError(f"Dynamic content did not become actionable for: {intent}")
+                            page.wait_for_timeout(1200)
+                            step["outcome"] = "Waited for dynamic page content"
+                            feedback = "The wait is over. Choose the visible control for this intent."
+                            continue
                         try:
                             page, outcome = execute_action(page, context, action, variables, case)
                         except TargetError as exc:
                             step["outcome"] = f"Target rejected: {exc}"
-                            if attempt == 0:
+                            if attempt < 2:
                                 feedback = str(exc)
                                 page.wait_for_timeout(600)
                                 continue
@@ -370,6 +403,8 @@ def run_case(
                         step["outcome"] = outcome
                         report["final_url"] = page.url
                         break
+                    else:
+                        raise ModelError(f"Could not complete browser action: {intent}")
                 for check in plan["checks"]:
                     passed = verify(page, check)
                     report["checks"].append({"check": check, "passed": passed})

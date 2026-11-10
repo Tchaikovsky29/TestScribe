@@ -1,34 +1,62 @@
 # TestScribe for VS Code
 
-Describe a browser test in the TestScribe chat sidebar, run it, and inspect the checked verdict in the conversation. The extension calls the same Python runner as the CLI and MCP server.
+**Describe a browser test in Chat and get a checked result without leaving VS Code.** TestScribe shows the verdict, assertions, browser actions, and links to screenshots and reports. It uses the same Python CLI as the [main project](https://github.com/Tchaikovsky29/TestScribe).
 
-## Prerequisites
+![TestScribe opens the PHPTravels flight demo, enters Delhi and Pune, selects a date, and verifies flight results](https://raw.githubusercontent.com/Tchaikovsky29/TestScribe/main/media/testscribe-demo.gif)
 
-Install [TestScribe](https://github.com/Tchaikovsky29/TestScribe#setup), install Playwright Chromium, and configure an API key for BharatCode, Gemini, or Groq. The extension does not bundle Python, Chromium, or model access.
+*A live TestScribe run on PHPTravels: search DEL to PNQ and verify a visible “Book Now” button in the flight results.*
 
-## Use
+## Set up in your web project
 
-1. Open the TestScribe activity bar icon, or run **TestScribe: Open Chat** from the Command Palette.
-2. Choose `testscribe.provider` (**BharatCode**, **Gemini**, **Groq**, or **Custom**) in VS Code Settings. Back in Chat, choose a model from the list above the conversation. Enter the website URL and a plain-English test with an expected result, then press **Enter** or **Run**. The chat shows progress, the checked `PASS`, `FAIL`, or `BLOCKED` verdict, browser actions, assertions, and report links.
-3. Use **Save** to put the current test in `.testscribe/<name>.json`. Saved cases also run through **TestScribe: Run Test Case** from a JSON editor or Explorer menu.
+The extension needs Python 3.10+, cURL, Playwright Chromium, and a model API key. It does not bundle them. Open your web project in VS Code and create a `.venv` there:
 
-Put the matching key (`BHARATCODE_API_KEY`, `GEMINI_API_KEY`, or `GROQ_API_KEY`) in the workspace `.env`, or use **TestScribe: Set API Key**. The command stores the key for the selected provider in VS Code Secret Storage. The extension asks the provider for its current model list when a key is available; without a key or when the catalog cannot load, the provider's default model stays selectable. The gear button opens provider and browser settings. Turn on `testscribe.headed` to watch Chromium during a run.
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install "git+https://github.com/Tchaikovsky29/TestScribe.git"
+python -m playwright install chromium
+```
 
-The extension uses the workspace `.venv/bin/testscribe` (or `.venv/Scripts/testscribe.exe` on Windows) when present, then falls back to `testscribe` on `PATH`. Set `testscribe.cliPath` if installed elsewhere. `testscribe.provider` selects the endpoint, default model, and key name. Set `testscribe.baseUrl` or `testscribe.apiKeyEnv` only to override a preset; clear old overrides to use the preset values. For **Custom**, set a base URL in Settings and enter the model ID in Chat. Model choices are saved locally per provider. The chat conversation is kept in memory for the current VS Code session.
+On Windows, use `py -3 -m venv .venv` and `.venv\Scripts\activate`. If Chromium reports missing Linux system libraries, run `python -m playwright install --with-deps chromium`. TestScribe finds `testscribe` in the workspace `.venv` automatically. If you installed it elsewhere, set `testscribe.cliPath` to the executable path.
 
-Run artifacts are stored in VS Code's extension storage, outside the workspace. Passing runs save a final-page screenshot by default; set `testscribe.passScreenshot` to `false` to turn it off. An optional `vars_file` in a case should point to an ignored local file. Prefix sensitive variable names with `_`; the Python runner redacts exact matches in model requests and reports and skips screenshots and traces for those runs by default. Unmarked values and explicitly enabled artifacts can expose typed values. See the root README.
+Install the TestScribe extension from the VS Code Marketplace, or use **Extensions: Install from VSIX...** with a [preview release](https://github.com/Tchaikovsky29/TestScribe/releases) while the Marketplace listing is being prepared. Then:
 
-## Build a VSIX
+1. Open **Settings → Extensions → TestScribe** and choose **TestScribe: Provider**: BharatCode, Gemini, Groq, or Custom.
+2. Add the matching API key to your web project's `.env` (`BHARATCODE_API_KEY`, `GEMINI_API_KEY`, or `GROQ_API_KEY`), or run **TestScribe: Set API Key** to keep it in VS Code Secret Storage. The extension never sends a stored key to its chat webview.
+3. Open the TestScribe activity bar icon. Choose a model, enter a full `http://` or `https://` URL, and write a test that includes the expected result. Press **Run** or **Enter**.
+
+When a key is available, the model picker loads IDs from the provider's `/models` endpoint. If the list cannot load, the preset's default model remains available. For **Custom**, set `testscribe.baseUrl` in Settings and type the model ID in Chat. `testscribe.apiKeyEnv` can override the key name.
+
+Try this case on a public form:
+
+```text
+URL:  https://www.selenium.dev/selenium/web/web-form.html
+Test: Enter TestScribe into the Text input field, submit the form, and verify that Received! appears.
+```
+
+The chat shows `PASS` only when Playwright verifies the requested result. `FAIL` means an action or check failed; `BLOCKED` means the run could not be completed reliably. Use **Open full report** for the plan, steps, checks, and evidence paths.
+
+## Save and review cases
+
+Use **Save** in Chat to create `.testscribe/<name>.json` in your web project. Run it again with **TestScribe: Run Test Case** from its editor or Explorer context menu. This is a simple JSON case:
+
+```json
+{
+  "url": "https://www.selenium.dev/selenium/web/web-form.html",
+  "test": "Enter TestScribe into the Text input field, submit the form, and verify that Received! appears."
+}
+```
+
+Reports and artifacts are kept in VS Code's extension storage, outside your workspace. Passing runs save a screenshot by default; turn off `testscribe.passScreenshot` to skip it. Set `testscribe.headed` to watch Chromium while a run executes.
+
+A case may reference an ignored `vars_file` for credentials. Prefix sensitive variable names with `_`; the Python runner substitutes those values locally, redacts exact matches in model requests and reports, and skips screenshots, traces, and video for those runs unless you opt in. See the [main README](https://github.com/Tchaikovsky29/TestScribe#test-flows-that-need-credentials) for the format and limits.
+
+## Build from source
 
 ```bash
 cd vscode-extension
 npm ci
-npm run compile
 npm run package
 ```
 
-Install the resulting `.vsix` with **Extensions: Install from VSIX...**. The extension is also runnable from the source folder with VS Code's Extension Development Host after compilation.
-
-The [public verification workflow](https://github.com/Tchaikovsky29/TestScribe/actions/workflows/verify.yml) builds a downloadable VSIX artifact after its CLI/MCP tests pass. This provides an early way to try the extension before Marketplace publication.
-
-The package uses a development publisher ID. Publishing to the Marketplace requires replacing it with a publisher ID you control and completing the Marketplace publisher setup.
+The generated `.vsix` can be installed with **Extensions: Install from VSIX...**. For the CLI and complete execution flow, see the [main README](https://github.com/Tchaikovsky29/TestScribe) and [approach and limitations](https://github.com/Tchaikovsky29/TestScribe/blob/main/approach-and-limitations.md).

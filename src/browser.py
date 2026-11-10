@@ -10,7 +10,7 @@ class TargetError(Exception):
     """A proposed browser target could not be resolved uniquely."""
 
 STOP_WORDS = {"a", "an", "as", "at", "by", "for", "in", "is", "of", "on", "the", "to", "with"}
-ROLES = {"button", "link", "textbox", "combobox", "checkbox", "radio", "tab", "menuitem", "option"}
+ROLES = {"button", "link", "textbox", "combobox", "checkbox", "radio", "tab", "menuitem", "option", "cell", "text"}
 ACTIONS = {"click", "fill", "select", "press", "navigate"}
 URL_PATTERN = re.compile(r"https?://[^\s<>\"']+")
 
@@ -98,7 +98,9 @@ def observe(page: Page, intent: str, budget: int = 8000) -> str:
         regions.append((score, name, region_snapshot))
 
     if not regions:
-        return header + "PAGE SNAPSHOT (bounded):\n" + snapshot[:budget]
+        half = budget // 2
+        return (header + "PAGE SNAPSHOT (bounded):\n" + snapshot[:half]
+                + "\n... [middle omitted] ...\n" + snapshot[-half:])
 
     regions.sort(key=lambda item: item[0], reverse=True)
     outline = "\n".join(f"- {name}" for _, name, _ in regions)[:1200]
@@ -134,7 +136,22 @@ def resolve_target(page: Page, role: str, name: str, section: str | None = None)
         scope = candidates[counts.index(1)]
     # Playwright serializes this regex into a /.../ selector; escape the delimiter too.
     pattern = re.compile(re.escape(name).replace("/", r"\/"), re.IGNORECASE)
-    locator = scope.get_by_role(role, name=pattern)
+    if role == "text":
+        locator = scope.get_by_text(pattern).filter(visible=True)
+        if locator.count() == 0:
+            # A snapshot can flatten an option's city, airport, and code into
+            # one line even though the page renders them in separate children.
+            words = name.split()
+            for length in range(len(words) - 1, 1, -1):
+                prefix = " ".join(words[:length])
+                candidate = scope.get_by_text(
+                    re.compile(re.escape(prefix).replace("/", r"\/"), re.IGNORECASE)
+                ).filter(visible=True)
+                if candidate.count() == 1:
+                    locator = candidate
+                    break
+    else:
+        locator = scope.get_by_role(role, name=pattern)
     count = locator.count()
     if count == 0 and role in {"textbox", "combobox"}:
         locator = scope.get_by_label(pattern)
@@ -171,6 +188,8 @@ def execute_action(
     section = action.get("section")
     if not isinstance(role, str) or not isinstance(name, str):
         raise TargetError("Action requires a role and name")
+    if role in {"text", "cell"} and kind != "click":
+        raise TargetError(f"{role} targets can only be clicked")
     if section is not None and not isinstance(section, str):
         raise TargetError("Section must be a string")
     locator = resolve_target(page, role, name, section)

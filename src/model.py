@@ -20,7 +20,7 @@ class ModelClient:
     api_key: str
     base_url: str
     model: str
-    max_calls: int = 12
+    max_calls: int = 20
     redactor: SecretRedactor = SecretRedactor()
 
     def __post_init__(self) -> None:

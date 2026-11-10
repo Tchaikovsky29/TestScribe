@@ -1,91 +1,82 @@
 # TestScribe
 
-TestScribe runs a plain-English test case in Chromium and reports `PASS`, `FAIL`, or `BLOCKED`. Web developers can run saved cases from the CLI or [VS Code extension](vscode-extension/README.md); coding agents can use the [agent skill](integrations/agent-skills/testscribe/SKILL.md) and MCP tools. It uses an AI model to turn the case into browser actions, Playwright to find and operate page elements, and code to check the requested result. The same runner works across sites; no PHPTRAVELS selectors or flows are embedded in it.
+**Write a browser test in plain English. Get a checked result and evidence.**
 
-## Setup
+![TestScribe opens the PHPTravels flight demo, enters Delhi and Pune, selects a date, and verifies flight results](media/testscribe-demo.gif)
 
-Requires Python 3.10+, cURL, and an API key for an OpenAI-compatible chat endpoint.
+*A real PHPTravels run: TestScribe opened the flight demo, searched DEL to PNQ for 10 November 2026, and passed after finding visible “Book Now” buttons. The last frame shows the saved result screenshot.*
+
+TestScribe turns a test such as “Enter TestScribe in the text field, submit, and verify that Received! appears” into browser actions. An AI model plans the actions; Playwright finds controls on the live page and checks the expected result. Run it from the terminal, the [VS Code chat extension](vscode-extension/README.md), or an MCP-capable coding agent. Tests are not tied to one website.
+
+[![Verify TestScribe](https://github.com/Tchaikovsky29/TestScribe/actions/workflows/verify.yml/badge.svg)](https://github.com/Tchaikovsky29/TestScribe/actions/workflows/verify.yml)
+
+## Try it from the terminal
+
+You need Python 3.10+, Git, cURL, and a model API key. The example below uses Gemini, which has a [free tier](https://ai.google.dev/gemini-api/docs/pricing). BharatCode is the default provider; Groq is also supported.
 
 ```bash
-python -m venv .venv
+git clone https://github.com/Tchaikovsky29/TestScribe.git
+cd TestScribe
+python3 -m venv .venv
 source .venv/bin/activate
-pip install -e .
+python -m pip install -e .
 python -m playwright install chromium
 cp .env.example .env
 ```
 
-Set a key for your chosen provider in `.env`. BharatCode `qwen-3.8-27b` is the default. `--provider gemini` and `--provider groq` select their endpoints, default models, and key names automatically. You can override those values with `--base-url`, `--model`, and `--api-key-env`. For an arbitrary OpenAI-compatible endpoint, use `--provider custom` with `--base-url` and `--model` (`OPENAI_API_KEY` is the default key name).
-
-**No paid subscription option:** Create a free Gemini API key in [Google AI Studio](https://aistudio.google.com/app/apikey), put it in `.env` as `GEMINI_API_KEY`, and run with `--provider gemini`. Google's [pricing page](https://ai.google.dev/gemini-api/docs/pricing) lists `gemini-3.1-flash-lite` in its free tier, and its [compatibility guide](https://ai.google.dev/gemini-api/docs/openai) documents the OpenAI-compatible endpoint. This configuration passed four live positive cases across three sites and failed one deliberately false case on 2026-11-07. These were single runs, so results may vary with model output and live-site changes. Free-tier availability and rate limits vary by account and region.
-
-For the agent MCP server, use Python 3.11+ and install the optional extra: `pip install -e '.[agent]'`. The CLI alone still supports Python 3.10+.
-
-## Run
+Put your key in `.env` as `GEMINI_API_KEY=your-key`. Get one from [Google AI Studio](https://aistudio.google.com/app/apikey). The `.env` file is ignored by Git. On Windows, create the environment with `py -3 -m venv .venv`, activate it with `.venv\Scripts\activate`, and copy `.env.example` to `.env`.
 
 ```bash
-testscribe run \
-  --url https://www.selenium.dev/selenium/web/web-form.html \
-  --test 'Enter TestScribe into the Text input field, submit the form, and verify that Received! appears.'
+testscribe run --provider gemini --case-file examples/web-form-pass.json
 ```
 
-Reusable cases are JSON files with a starting `url`, a `test` instruction, and optional `vars_file`. Try the included positive and deliberately false cases:
+The example opens [Selenium's public web form](https://www.selenium.dev/selenium/web/web-form.html), enters text, submits, and checks for `Received!`. A successful run prints `PASS` and the path to `report.json`. It also saves `pass.png` as evidence. Try `examples/web-form-fail.json` to see a deliberately false expectation return `FAIL`.
 
-```bash
-testscribe run --case-file examples/web-form-pass.json --json
-testscribe run --case-file examples/web-form-fail.json --json
-```
+If Chromium is missing, run `python -m playwright install chromium` again. On Linux, if it cannot start because system libraries are missing, run `python -m playwright install --with-deps chromium`.
 
-`--json` prints a compact result with `status`, `reason`, checks, steps, and evidence paths. It is meant for coding agents and editor integrations; the complete `report.json` remains on disk. A saved case can be kept in a web app's `.testscribe/` folder and rerun after changes.
-
-Or use `python -m src run` with the same arguments. The command prints a verdict and writes `artifacts/<timestamp>/report.json`. `--output-dir` accepts a directory, for example `artifacts/custom`; the report is written inside it as `report.json`. Exit code is `0` for PASS and `1` for FAIL or BLOCKED. A passing run saves a final-page `pass.png` by default; add `--no-pass-screenshot` to skip it. Nonpassing runs save `failure.png` and a Playwright trace when a browser page exists. Marked sensitive variables disable these artifacts unless explicitly allowed. Traces can contain typed values, so `artifacts/` is ignored by Git.
-
-False expectation example:
-
-```bash
-testscribe run \
-  --url https://www.selenium.dev/selenium/web/web-form.html \
-  --test 'Submit the form and verify that Payment complete appears.'
-```
-
-PHPTRAVELS example:
+## Write your own test
 
 ```bash
 testscribe run \
   --url https://phptravels.com/demo \
-  --test 'Open the storefront from the demo page and verify a flight search option is shown.'
-```
-
-Three four-action cases across PHPTRAVELS, Selenium's web form, and The Internet are listed in [`smoke-cases.json`](smoke-cases.json). Run any case by passing its `url` and `test` values to `testscribe run`. Results depend on the live sites and model responses.
-
-Gemini example (with `GEMINI_API_KEY` in `.env`):
-
-```bash
-testscribe run \
-  --url https://www.selenium.dev/selenium/web/web-form.html \
-  --test 'Enter TestScribe into the Text input field, submit the form, and verify that Received! appears.' \
+  --test 'Open the storefront from the demo page and verify a flight search option is shown.' \
   --provider gemini
 ```
 
-Groq example (with `GROQ_API_KEY` in `.env`): `testscribe run --provider groq --case-file examples/web-form-pass.json`. The preset uses Groq's [OpenAI-compatible endpoint](https://console.groq.com/docs/openai) and [GPT OSS 120B model](https://console.groq.com/docs/model/openai/gpt-oss-120b). Provider presets select connection settings; model behavior still varies, so check the saved report.
+Use a full `http://` or `https://` URL and state what should be checked. TestScribe first checks that the URL responds, then plans up to 12 actions, observes the page before each action, and verifies the final state in Chromium. The model cannot declare its own run a pass. See [Approach and limitations](approach-and-limitations.md) for the full flow and known gaps.
 
-For credentials or other variables, create an ignored file such as `demo.secrets.json` containing a JSON object: `{"CUSTOMER_EMAIL":"customer@example.com","_PASSWORD":"admin123"}`. Refer to them in the test as `{{CUSTOMER_EMAIL}}` and `{{_PASSWORD}}`, and pass `--vars-file demo.secrets.json`. A key starting with `_` marks its value as sensitive: TestScribe substitutes it locally when filling the browser, replaces exact matches (including URL-encoded forms) before model requests and in reports, and does not save screenshots, traces, or video by default. Unmarked values, such as a username, can appear in model requests. Run `testscribe --vars-file --help` for the format guide.
+The command writes `artifacts/<timestamp>/report.json`. Pass `--output-dir artifacts/my-run` to choose a directory; the file will be `artifacts/my-run/report.json`. `--json` prints a compact result for scripts and agents. Exit code `0` means `PASS`; exit code `1` means `FAIL` or `BLOCKED` (the run could not be completed reliably). Argument and setup errors use exit code `2`. Run `testscribe --help` to see every flag.
 
-The target website still receives filled values. Exact-match redaction cannot cover values that the site transforms into an unrecognized form. If you intentionally need sensitive screenshots (including the default pass screenshot), traces, or video, use `--allow-sensitive-artifacts`; these files can reveal the values and should be handled privately. `--record-video` with sensitive variables requires that flag.
+## Choose a model provider
 
-To watch a run, use `--headed --slow-mo 1000 --hold-seconds 10`. This delays browser actions by one second and leaves the final page open for ten seconds. In headed mode the page follows the browser window size; maximize the window manually if your desktop does not honor Chromium's maximize request. The flags are optional and do not change the assertion.
+Put the matching key in `.env`, then select the provider with `--provider`:
 
-Add `--record-video` to save page video files under the chosen output directory. This captures the browser page for a walkthrough; it does not capture terminal output or narration. Sensitive runs require `--allow-sensitive-artifacts` to record video.
+| Provider | Key in `.env` | Command option |
+| --- | --- | --- |
+| BharatCode (default) | `BHARATCODE_API_KEY` | Omit `--provider`, or use `--provider bharatcode` |
+| Gemini | `GEMINI_API_KEY` | `--provider gemini` |
+| Groq | `GROQ_API_KEY` | `--provider groq` |
 
-See [Approach and limitations](approach-and-limitations.md) for the execution flow and known boundaries.
+Each preset supplies a base URL, model ID, and key name. Use `--model` to pick another model, or `--base-url` and `--api-key-env` to override the connection. For another OpenAI-compatible service, use `--provider custom --base-url URL --model MODEL`; its default key name is `OPENAI_API_KEY`. Model availability, free tiers, and rate limits depend on the provider and account. The [Gemini-compatible endpoint](https://ai.google.dev/gemini-api/docs/openai) and [Groq-compatible endpoint](https://console.groq.com/docs/openai) are documented by their providers.
 
-## Coding agents
+## Use it in VS Code
 
-The [portable TestScribe agent skill](integrations/agent-skills/testscribe/SKILL.md) tells a coding agent when to run a browser case, how to interpret `PASS`, `FAIL`, and `BLOCKED`, and when to inspect evidence. For an agent that reads skills from `~/.agents/skills`, install it with `mkdir -p ~/.agents/skills && cp -R integrations/agent-skills/testscribe ~/.agents/skills/`. Other agents may use another skills directory. Installing the skill does not register tools; agents can always call the CLI directly.
+The [VS Code extension guide](vscode-extension/README.md) covers setup in a web project. In the TestScribe sidebar, enter a site URL and test, pick a model, and see the verdict, checks, browser steps, and evidence links in one chat view. Choose BharatCode, Gemini, Groq, or Custom in **TestScribe: Provider** settings. The extension uses the same Python CLI and Playwright browser, which you install separately.
 
-After starting a local web app, an agent can run `testscribe run --url http://localhost:3000 --test 'Open the contact form, submit it empty, and verify that an email error appears.' --json`, inspect the returned check and evidence, change the app if needed, and rerun the same case.
+## Test flows that need credentials
 
-For an MCP-capable agent, register a local stdio server with command `testscribe-mcp` and the API key environment variable for your chosen provider. The server provides `start_test`, `get_test_status`, and `get_test_result`. Pass `provider: "gemini"` or `provider: "groq"` to `start_test` for those presets. A long test returns a run ID immediately, so the agent can poll and receive the same checked verdict as `report.json`. Pass `no_pass_screenshot: true` to skip pass screenshots. Its artifacts default to the system temporary directory under `testscribe-runs/`; set `TESTSCRIBE_ARTIFACTS_DIR` to choose another parent directory. Keep keys in the agent's private MCP configuration, not in the repository.
+Put values in an ignored file such as `login.secrets.json`:
 
-## VS Code
+```json
+{"EMAIL":"customer@example.com","_PASSWORD":"your-password"}
+```
 
-The [VS Code extension](vscode-extension/README.md) has a chat sidebar for entering a site URL and plain-English test, running it, and inspecting the checked result, actions, and evidence. It also saves reusable JSON cases and runs them from the editor. It stores API keys in VS Code Secret Storage and requires the Python package and Chromium to be installed separately. Build a local VSIX with `cd vscode-extension && npm ci && npm run package`, or download the VSIX from the [preview releases](https://github.com/Tchaikovsky29/TestScribe/releases).
+Reference them in the test as `{{EMAIL}}` and `{{_PASSWORD}}`, then pass `--vars-file login.secrets.json`. Values whose names start with `_` are inserted locally when filling browser fields and redacted from model requests and reports by exact match. Sensitive runs skip screenshots, traces, and video by default; `--allow-sensitive-artifacts` opts in. The website receives the filled values, and transformed values may evade exact-match redaction. Run `testscribe --vars-file --help` for details.
+
+For a visible walkthrough, add `--headed --slow-mo 1000 --hold-seconds 10`. Add `--record-video` to save browser-page video. Passing runs save `pass.png` by default; `--no-pass-screenshot` turns that off. Nonpassing runs save a screenshot and trace when a page is available, unless sensitive variables suppress them. `artifacts/` is ignored by Git.
+
+## Use it with coding agents
+
+Install the optional MCP server with Python 3.11+ and `python -m pip install -e '.[agent]'`. Register the local stdio command `testscribe-mcp` with your agent. It exposes `start_test`, `get_test_status`, and `get_test_result`; `start_test` accepts `provider`, `case_file` or `url` and `test`, and optional model/connection overrides. Runs return an ID immediately so agents can poll for a checked verdict. MCP artifacts default to the system temporary directory under `testscribe-runs/`; set `TESTSCRIBE_ARTIFACTS_DIR` to change it.
+
+The [portable agent skill](integrations/agent-skills/testscribe/SKILL.md) explains when to run a test and how to interpret the result. Agents can also invoke `testscribe run --json` directly. Keep provider keys in the agent's private environment or your workspace `.env`.
