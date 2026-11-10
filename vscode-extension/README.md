@@ -2,6 +2,8 @@
 
 **Describe a browser test in Chat and get a checked result without leaving VS Code.** TestScribe shows the verdict, assertions, browser actions, and links to screenshots and reports. It uses the same Python CLI as the [main project](https://github.com/Tchaikovsky29/TestScribe).
 
+[Install TestScribe from the VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=AravBhardwaj.testscribe).
+
 ![TestScribe opens the PHPTravels flight demo, enters Delhi and Pune, selects a date, and verifies flight results](https://raw.githubusercontent.com/Tchaikovsky29/TestScribe/main/media/testscribe-demo.gif)
 
 *A live TestScribe run on PHPTravels: search DEL to PNQ and verify a visible “Book Now” button in the flight results.*
@@ -19,7 +21,7 @@ python -m playwright install chromium
 
 On Windows, use `py -3 -m venv .venv` and `.venv\Scripts\activate`. If Chromium reports missing Linux system libraries, run `python -m playwright install --with-deps chromium`. TestScribe finds `testscribe` in the workspace `.venv` automatically. If you installed it elsewhere, set `testscribe.cliPath` to the executable path.
 
-Install the TestScribe extension from the VS Code Marketplace, or use **Extensions: Install from VSIX...** with a [preview release](https://github.com/Tchaikovsky29/TestScribe/releases) while the Marketplace listing is being prepared. Then:
+Install [TestScribe from the VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=AravBhardwaj.testscribe). Then:
 
 1. Open **Settings → Extensions → TestScribe** and choose **TestScribe: Provider**: BharatCode, Gemini, Groq, or Custom.
 2. Add the matching API key to your web project's `.env` (`BHARATCODE_API_KEY`, `GEMINI_API_KEY`, or `GROQ_API_KEY`), or run **TestScribe: Set API Key** to keep it in VS Code Secret Storage. The extension never sends a stored key to its chat webview.

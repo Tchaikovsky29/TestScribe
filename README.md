@@ -2,6 +2,8 @@
 
 **Write a browser test in plain English. Get a checked result and evidence.**
 
+[Install TestScribe from the VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=AravBhardwaj.testscribe) · [Use the CLI](#try-it-from-the-terminal) · [Connect a coding agent](#use-it-with-coding-agents)
+
 ![TestScribe opens the PHPTravels flight demo, enters Delhi and Pune, selects a date, and verifies flight results](media/testscribe-demo.gif)
 
 *A real PHPTravels run: TestScribe opened the flight demo, searched DEL to PNQ for 10 November 2026, and passed after finding visible “Book Now” buttons. The last frame shows the saved result screenshot.*
@@ -61,7 +63,7 @@ Each preset supplies a base URL, model ID, and key name. Use `--model` to pick a
 
 ## Use it in VS Code
 
-The [VS Code extension guide](vscode-extension/README.md) covers setup in a web project. In the TestScribe sidebar, enter a site URL and test, pick a model, and see the verdict, checks, browser steps, and evidence links in one chat view. Choose BharatCode, Gemini, Groq, or Custom in **TestScribe: Provider** settings. The extension uses the same Python CLI and Playwright browser, which you install separately.
+[Install TestScribe from the VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=AravBhardwaj.testscribe), then follow the [extension setup guide](vscode-extension/README.md) in your web project. In the TestScribe sidebar, enter a site URL and test, pick a model, and see the verdict, checks, browser steps, and evidence links in one chat view. Choose BharatCode, Gemini, Groq, or Custom in **TestScribe: Provider** settings. The extension uses the same Python CLI and Playwright browser, which you install separately.
 
 ## Test flows that need credentials
 
