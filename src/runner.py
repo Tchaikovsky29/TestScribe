@@ -13,7 +13,7 @@ from typing import Any
 from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import Page, sync_playwright
 
-from src.browser import TargetError, check_url_exists, execute_action, explicit_urls, observe
+from src.browser import TargetError, check_url_exists, execute_action, explicit_urls, inspect_action_targets, observe
 from src.model import ModelClient, ModelError
 
 
@@ -25,7 +25,11 @@ Return only one JSON object with:
     {"kind":"text_absent","text":"exact words that must not appear"}
     {"kind":"control_visible","text":"short identifying words for an unnamed interactive control"}
     {"kind":"role_visible","role":"heading|button|link|textbox|tab","name":"control label stated in the test"}
+    {"kind":"role_enabled","role":"button|link|textbox|tab","name":"enabled control label stated in the test"}
     {"kind":"url_contains","text":"URL substring"}
+  Each check may have "after_action": the number of actions completed when it
+  must be checked. Use 0 for a check before the first action, 1 after the first,
+  and so on. Omit it only for a final check after every action.
 Preserve explicit expected words from the test. Include ONLY checks explicitly requested
 by the test. A URL check is allowed only when the test states the expected URL/path.
 Do not turn entered values, selected suggestions, or clicked controls into final checks
@@ -44,6 +48,11 @@ click, fill, select, or press.
 For a test that only says verify, produce no actions. Do not add scrolling or searching
 as actions; Playwright checks find elements throughout the page.
 Make a separate check for each distinct expected outcome joined by "and".
+If the case says verify a condition and THEN perform another action, place that
+check before the later action with after_action. For example, "verify Save is
+enabled, then click Save, then verify Saved appears" has one role_enabled check
+with after_action 0 and one final text_visible check. Enabled is stronger than
+visible: never replace an enabled check with role_visible.
 When the test names an expected control, use role_visible with only that control's
 label as name. Do not include surrounding context such as where it appears. For
 example, "verify Book Now buttons appear in flight results" becomes
@@ -78,7 +87,7 @@ For icon-prefixed names, the meaningful words can be used (for example Login).
 If the intent asks for a credential placeholder, return the placeholder as value; do not invent a secret.
 Do not claim success, produce code, or choose a target absent from the observation."""
 
-CHECK_KINDS = {"text_visible", "text_absent", "control_visible", "role_visible", "url_contains"}
+CHECK_KINDS = {"text_visible", "text_absent", "control_visible", "role_visible", "role_enabled", "url_contains"}
 CHECK_ROLES = {"heading", "button", "link", "textbox", "tab"}
 
 
@@ -94,13 +103,17 @@ class PlanError(Exception):
     """A planned test did not contain executable checks."""
 
 
+class NoProgressError(TargetError):
+    """A repeated click would replay an action that made no useful progress."""
+
+
 def make_plan(model: ModelClient, url: str, case: str) -> dict[str, Any]:
     prompt = f"START URL: {url}\nTEST CASE: {case}"
     data = model.json_response(PLAN_SYSTEM, prompt)
     initial_checks = data.get("checks")
     invented_role = isinstance(initial_checks, list) and any(
         isinstance(check, dict)
-        and check.get("kind") == "role_visible"
+        and check.get("kind") in {"role_visible", "role_enabled"}
         and isinstance(check.get("name"), str)
         and check["name"].lower() not in case.lower()
         for check in initial_checks
@@ -128,6 +141,17 @@ def make_plan(model: ModelClient, url: str, case: str) -> dict[str, Any]:
         r"\s+and\s+(?=(?:click|open|choose|select|type|fill|enter|submit|press)\b)",
         action, flags=re.I,
     ) if part.strip()]
+    actions = [
+        action for action in actions
+        if action.strip().lower() not in {
+            f"navigate to {url}".lower(),
+            f"open {url}".lower(),
+        }
+    ]
+    if case.strip().lower().startswith(("verify ", "check ", "confirm ")) and not re.search(
+        r"\b(?:click|fill|enter|type|submit|press|navigate|open|select)\b", case, re.I
+    ):
+        actions = []
     if len(actions) > 12:
         raise PlanError("Model plan exceeds 12 actions")
     if not isinstance(checks, list) or not 1 <= len(checks) <= 5:
@@ -142,7 +166,7 @@ def make_plan(model: ModelClient, url: str, case: str) -> dict[str, Any]:
     for check in checks:
         if not isinstance(check, dict) or check.get("kind") not in CHECK_KINDS:
             raise PlanError("Model plan contains an unsupported assertion")
-        if check["kind"] == "role_visible":
+        if check["kind"] in {"role_visible", "role_enabled"}:
             if check.get("role") not in CHECK_ROLES or not isinstance(check.get("name"), str) or not check["name"].strip():
                 raise PlanError("Role assertion needs a role and name")
             if check["name"].lower() not in case.lower():
@@ -153,15 +177,8 @@ def make_plan(model: ModelClient, url: str, case: str) -> dict[str, Any]:
             raise PlanError("Model invented a URL assertion that was not requested")
         if check["kind"] == "control_visible" and not _grounded_words(check["text"], case):
             raise PlanError("Model invented a control description that was not requested")
-    actions = [
-        action for action in actions
-        if action.strip().lower() not in {
-            f"navigate to {url}".lower(),
-            f"open {url}".lower(),
-        }
-    ]
-    if case.strip().lower().startswith(("verify ", "check ", "confirm ")):
-        actions = []
+        if "after_action" in check and (type(check["after_action"]) is not int or not 0 <= check["after_action"] <= len(actions)):
+            raise PlanError("Assertion timing must be a number of completed actions")
     return {"actions": actions, "checks": checks}
 
 
@@ -192,8 +209,10 @@ def choose_action(
             fallback = observed_click_for_intent(intent, observation)
             if fallback:
                 return fallback
-            # The executor rejects this URL; the outer loop then waits and re-observes.
-            return data
+            if attempt == 0:
+                prompt += "\nCORRECTION: That URL was not supplied in the test. Choose a page control from the current observation, or wait for one to appear. Do not invent navigation."
+                continue
+            raise ModelError("Model proposed navigation to a URL absent from the test after correction")
         if (
             data["action"] == "fill"
             and "copy" in intent.lower()
@@ -255,13 +274,16 @@ def _control_visible(page: Page, description: str) -> bool:
     return False
 
 
-def check_once(page: Page, check: dict[str, str]) -> bool:
+def check_once(page: Page, check: dict[str, Any]) -> bool:
     kind = check["kind"]
     if kind == "url_contains":
         return check["text"].lower() in page.url.lower()
     if kind == "role_visible":
         locator = page.get_by_role(check["role"], name=re.compile(re.escape(check["name"]).replace("/", r"\/"), re.I))
         return _any_visible(locator)
+    if kind == "role_enabled":
+        locator = page.get_by_role(check["role"], name=re.compile(re.escape(check["name"]).replace("/", r"\/"), re.I))
+        return any(item.is_visible() and item.is_enabled() for item in locator.all()[:30])
     if kind == "control_visible":
         return _control_visible(page, check["text"])
     locator = page.get_by_text(check["text"], exact=False)
@@ -269,7 +291,7 @@ def check_once(page: Page, check: dict[str, str]) -> bool:
     return not visible if kind == "text_absent" else visible
 
 
-def verify(page: Page, check: dict[str, str], timeout_seconds: float = 15) -> bool:
+def verify(page: Page, check: dict[str, Any], timeout_seconds: float = 15) -> bool:
     deadline = time.monotonic() + timeout_seconds
     if check["kind"] == "text_absent":
         while time.monotonic() < deadline:
@@ -331,6 +353,7 @@ def run_case(
         "status": "BLOCKED",
         "passed": False,
         "reason": "Run did not start",
+        "failure_stage": None,
         "start_url": url,
         "final_url": url,
         "test_case": case,
@@ -346,6 +369,10 @@ def run_case(
     page: Page | None = None
     context = None
     save_artifacts = not model.redactor.values or allow_sensitive_artifacts
+    stalled_clicks: set[tuple[str, str, str, int]] = set()
+    submitted_clicks: set[tuple[str, str, str, int]] = set()
+    input_generation = 0
+    stage = "setup"
     try:
         if record_video and not save_artifacts:
             raise PlanError("Video with sensitive variables requires --allow-sensitive-artifacts")
@@ -355,8 +382,10 @@ def run_case(
         ):
             raise PlanError("Login method or credentials are not specified in the test case")
         report["start_url_http_status"] = check_url_exists(url)
+        stage = "planning"
         plan = make_plan(model, url, case)
         report["plan"] = plan
+        stage = "browser_setup"
         with sync_playwright() as playwright:
             browser = playwright.chromium.launch(
                 headless=not headed,
@@ -375,8 +404,26 @@ def run_case(
                 context.tracing.start(screenshots=True, snapshots=True, sources=True)
             try:
                 page = context.new_page()
+                stage = "navigation"
                 page.goto(url, wait_until="domcontentloaded", timeout=30000)
-                for intent in plan["actions"]:
+                def check_at(action_count: int) -> bool:
+                    for check in plan["checks"]:
+                        if check.get("after_action", len(plan["actions"])) != action_count:
+                            continue
+                        passed = verify(page, check)
+                        report["checks"].append({"check": check, "passed": passed, "after_action": action_count})
+                        if not passed:
+                            report["status"] = "FAIL"
+                            report["failure_stage"] = "assertion"
+                            report["reason"] = f"Expected condition was not met: {check}"
+                            return False
+                    return True
+
+                for action_count, intent in enumerate(plan["actions"]):
+                    stage = "assertion"
+                    if not check_at(action_count):
+                        break
+                    stage = "action"
                     feedback = ""
                     for attempt in range(3):
                         observation = observe(page, intent)
@@ -392,30 +439,41 @@ def run_case(
                             feedback = "The wait is over. Choose the visible control for this intent."
                             continue
                         try:
+                            click_key = (page.url, str(action.get("role", "")), str(action.get("name", "")), input_generation)
+                            before_snapshot = ""
+                            if action["action"] == "click":
+                                if click_key in stalled_clicks or click_key in submitted_clicks:
+                                    raise NoProgressError(f"Repeated click on {target!r} without new input or navigation; inspect the current page before retrying")
+                                before_snapshot = page.aria_snapshot()
                             page, outcome = execute_action(page, context, action, variables, case)
                         except TargetError as exc:
                             step["outcome"] = f"Target rejected: {exc}"
+                            if isinstance(exc, NoProgressError):
+                                raise
                             if attempt < 2:
-                                feedback = str(exc)
+                                feedback = str(exc) + "\n" + inspect_action_targets(page, action, intent)
                                 page.wait_for_timeout(600)
                                 continue
                             raise
                         step["outcome"] = outcome
                         report["final_url"] = page.url
+                        if action["action"] in {"fill", "select", "press"}:
+                            input_generation += 1
+                        elif action["action"] == "click" and page.url == click_key[0]:
+                            page.wait_for_timeout(500)
+                            if page.aria_snapshot() == before_snapshot:
+                                stalled_clicks.add(click_key)
+                            if re.search(r"\b(?:sign\s*in|log\s*in|submit|save|authorize|connect)\b", click_key[2], re.I):
+                                submitted_clicks.add(click_key)
                         break
                     else:
                         raise ModelError(f"Could not complete browser action: {intent}")
-                for check in plan["checks"]:
-                    passed = verify(page, check)
-                    report["checks"].append({"check": check, "passed": passed})
-                    if not passed:
-                        report["status"] = "FAIL"
-                        report["reason"] = f"Expected condition was not met: {check}"
-                        break
                 else:
-                    report["status"] = "PASS"
-                    report["passed"] = True
-                    report["reason"] = "All requested checks matched the browser state"
+                    stage = "assertion"
+                    if check_at(len(plan["actions"])):
+                        report["status"] = "PASS"
+                        report["passed"] = True
+                        report["reason"] = "All requested checks matched the browser state"
                 report["final_url"] = page.url
                 if report["passed"] and save_artifacts:
                     if pass_screenshot:
@@ -437,11 +495,14 @@ def run_case(
                     report["artifacts"]["videos"] = [str(path) for path in sorted(video_dir.glob("*.webm"))]
                 browser.close()
     except (ModelError, PlanError, TargetError) as exc:
+        report["failure_stage"] = "provider" if isinstance(exc, ModelError) and str(exc).startswith("Model request failed") else stage
         report["reason"] = str(exc)
     except PlaywrightError as exc:
-        report["status"] = "FAIL"
+        report["status"] = "BLOCKED"
+        report["failure_stage"] = stage
         report["reason"] = f"Browser action failed: {str(exc).splitlines()[0]}"
     except Exception as exc:
+        report["failure_stage"] = stage
         report["reason"] = f"Unexpected error: {type(exc).__name__}: {exc}"
     finally:
         report["model_calls"] = model.calls

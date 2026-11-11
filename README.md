@@ -45,7 +45,7 @@ testscribe run \
   --provider gemini
 ```
 
-Use a full `http://` or `https://` URL and state what should be checked. TestScribe first checks that the URL responds, then plans up to 12 actions, observes the page before each action, and verifies the final state in Chromium. The model cannot declare its own run a pass. See [Approach and limitations](approach-and-limitations.md) for the full flow and known gaps.
+Use a full `http://` or `https://` URL and state what should be checked. TestScribe first checks that the URL responds, then plans up to 12 actions, observes the page before each action, and verifies conditions at the requested points in Chromium. The model cannot declare its own run a pass. See [Approach and limitations](approach-and-limitations.md) for the full flow and known gaps.
 
 The command writes `artifacts/<timestamp>/report.json`. Pass `--output-dir artifacts/my-run` to choose a directory; the file will be `artifacts/my-run/report.json`. `--json` prints a compact result for scripts and agents. Exit code `0` means `PASS`; exit code `1` means `FAIL` or `BLOCKED` (the run could not be completed reliably). Argument and setup errors use exit code `2`. Run `testscribe --help` to see every flag.
 

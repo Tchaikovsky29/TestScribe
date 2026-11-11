@@ -20,6 +20,7 @@ def compact_report(report: dict[str, Any], report_path: Path) -> dict[str, Any]:
         "status": report["status"],
         "passed": report["passed"],
         "reason": report["reason"],
+        "failure_stage": report.get("failure_stage"),
         "start_url": report["start_url"],
         "final_url": report["final_url"],
         "checks": report["checks"],

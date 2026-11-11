@@ -161,6 +161,36 @@ def resolve_target(page: Page, role: str, name: str, section: str | None = None)
     return locator
 
 
+def inspect_action_targets(page: Page, action: dict[str, Any], intent: str) -> str:
+    """Give a retry concrete live controls and context after target resolution fails."""
+    terms = _terms(intent)
+    ranked: list[tuple[int, str]] = []
+    for line in page.aria_snapshot().splitlines():
+        if not re.search(r'\b(?:button|link|tab|menuitem|option|combobox|textbox|radio|checkbox) "', line):
+            continue
+        score = len(terms & _terms(line))
+        if score:
+            ranked.append((score, line.strip()[:220]))
+    ranked.sort(key=lambda item: item[0], reverse=True)
+    lines = ["LIVE TARGET INSPECTION (current page):"]
+    lines.extend(dict.fromkeys(line for _, line in ranked[:12]))
+    role, name = action.get("role"), action.get("name")
+    if role in ROLES - {"text", "cell"} and isinstance(name, str) and name:
+        try:
+            matches = page.get_by_role(role, name=re.compile(re.escape(name).replace("/", r"\/"), re.I)).all()[:5]
+            for index, match in enumerate(matches, 1):
+                if not match.is_visible():
+                    continue
+                context = match.evaluate("""element => {
+                    const parent = element.closest('[role="region"], [role="navigation"], [role="dialog"], form, nav') || element.parentElement;
+                    return (parent?.getAttribute('aria-label') || parent?.innerText || '').replace(/\\s+/g, ' ').slice(0, 160);
+                }""")
+                lines.append(f"Candidate {index} context: {context}")
+        except Exception:
+            pass
+    return "\n".join(lines)[:2500]
+
+
 def execute_action(
     page: Page,
     context: BrowserContext,

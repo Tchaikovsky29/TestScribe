@@ -13,6 +13,9 @@ import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
+from playwright.sync_api import sync_playwright
+
+from src.browser import inspect_action_targets
 from src.cases import CaseFileError, load_case_file
 from src.providers import PRESETS, resolve_provider
 
@@ -44,6 +47,13 @@ class DemoHandler(BaseHTTPRequestHandler):
         if self.path.startswith("/submitted"):
             self.server.submitted_paths.append(self.path)
             body = b"<html><body><h1>Received!</h1></body></html>"
+        elif self.path.startswith("/stalled"):
+            body = b"<html><body><button>Submit</button><p>Ready</p></body></html>"
+        elif self.path.startswith("/staged-disabled"):
+            body = b"<html><body><button disabled>Save</button></body></html>"
+        elif self.path.startswith("/staged"):
+            body = (b"<html><body><button onclick=\"this.remove();document.body.insertAdjacentHTML('beforeend','<p>Saved</p>')\">"
+                    b"Save</button></body></html>")
         elif self.path.startswith("/secret-form"):
             body = (b"<html><body><form action='/submitted'>"
                     b"<label>Username <input name='username'></label>"
@@ -66,7 +76,16 @@ class DemoHandler(BaseHTTPRequestHandler):
         user = data["messages"][1]["content"]
         self.server.model_inputs.append(user)
         if "You convert a plain-English" in system:
-            if "{{_PASSWORD}}" in user:
+            if "Reload the page" in user:
+                answer = {"actions": ["Reload the page"], "checks": [{"kind": "text_visible", "text": "Ready"}]}
+            elif "Click Submit twice" in user:
+                answer = {"actions": ["Click Submit", "Click Submit", "Click Submit"],
+                          "checks": [{"kind": "text_visible", "text": "Ready"}]}
+            elif "Verify Save is enabled" in user:
+                answer = {"actions": ["Click Save"],
+                          "checks": [{"kind": "role_enabled", "role": "button", "name": "Save", "after_action": 0},
+                                     {"kind": "text_visible", "text": "Saved"}]}
+            elif "{{_PASSWORD}}" in user:
                 answer = {"actions": ["Enter {{USERNAME}} into Username", "Enter {{_PASSWORD}} into Password", "Submit the form"],
                           "checks": [{"kind": "text_visible", "text": "Never" if "Never" in user else "Received!"}]}
             elif "absent" in user:
@@ -81,6 +100,10 @@ class DemoHandler(BaseHTTPRequestHandler):
             answer = {"action": "fill", "role": "textbox", "name": "Password", "value": "{{_PASSWORD}}"}
         elif "CURRENT INTENT: Enter Demo" in user:
             answer = {"action": "fill", "role": "textbox", "name": "Text input", "value": "Demo"}
+        elif "CURRENT INTENT: Click Save" in user:
+            answer = {"action": "click", "role": "button", "name": "Save"}
+        elif "CURRENT INTENT: Reload the page" in user:
+            answer = {"action": "navigate", "url": self.server.base_url + "/invented"}
         else:
             answer = {"action": "click", "role": "button", "name": "Submit"}
         payload = json.dumps({
@@ -104,6 +127,7 @@ class AgentFlowTests(unittest.TestCase):
         cls.thread = threading.Thread(target=cls.server.serve_forever, daemon=True)
         cls.thread.start()
         cls.base = f"http://127.0.0.1:{cls.server.server_port}"
+        cls.server.base_url = cls.base
 
     @classmethod
     def tearDownClass(cls) -> None:
@@ -156,6 +180,59 @@ class AgentFlowTests(unittest.TestCase):
         self.assertEqual(summary["status"], "FAIL")
         self.assertFalse(summary["checks"][0]["passed"])
         self.assertTrue(Path(summary["artifacts"]["screenshot"]).is_file())
+
+    def test_checks_run_at_the_requested_stage(self) -> None:
+        path = self.root / "staged.json"
+        path.write_text(json.dumps({"url": self.base + "/staged",
+                                    "test": "Verify Save is enabled, then click Save and verify Saved appears."}), encoding="utf-8")
+        result, summary = self.run_cli(path, "staged")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(summary["status"], "PASS")
+        self.assertEqual([check["after_action"] for check in summary["checks"]], [0, 1])
+        self.assertTrue(all(check["passed"] for check in summary["checks"]))
+
+        path.write_text(json.dumps({"url": self.base + "/staged-disabled",
+                                    "test": "Verify Save is enabled, then click Save and verify Saved appears."}), encoding="utf-8")
+        result, summary = self.run_cli(path, "staged-disabled")
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertEqual(summary["status"], "FAIL")
+        self.assertEqual(summary["failure_stage"], "assertion")
+        self.assertEqual(summary["steps"], [])
+
+    def test_repeated_submit_without_progress_blocks(self) -> None:
+        path = self.root / "stalled.json"
+        path.write_text(json.dumps({"url": self.base + "/stalled",
+                                    "test": "Click Submit twice and verify Ready appears."}), encoding="utf-8")
+        result, summary = self.run_cli(path, "stalled")
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertEqual(summary["status"], "BLOCKED")
+        self.assertEqual(summary["failure_stage"], "action")
+        self.assertIn("Repeated click", summary["reason"])
+        self.assertEqual(len([step for step in summary["steps"] if step["outcome"].startswith("click")]), 1)
+
+    def test_ambiguous_target_inspection_names_live_contexts(self) -> None:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch()
+            try:
+                page = browser.new_page()
+                page.set_content('<nav aria-label="Tenant navigation"><a href="#one">Tenants</a></nav>'
+                                 '<nav aria-label="Partner navigation"><a href="#two">Tenants</a></nav>')
+                inspection = inspect_action_targets(page, {"role": "link", "name": "Tenants"}, "Click Tenants")
+                self.assertIn("Tenant navigation", inspection)
+                self.assertIn("Partner navigation", inspection)
+            finally:
+                browser.close()
+
+    def test_unprovided_navigation_stops_after_one_correction(self) -> None:
+        path = self.root / "invented-url.json"
+        path.write_text(json.dumps({"url": self.base + "/stalled",
+                                    "test": "Reload the page and verify Ready appears."}), encoding="utf-8")
+        result, summary = self.run_cli(path, "invented-url")
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertEqual(summary["status"], "BLOCKED")
+        self.assertEqual(summary["failure_stage"], "action")
+        self.assertIn("URL absent from the test", summary["reason"])
+        self.assertEqual(summary["model_calls"], 3)
 
     def test_gemini_preset_selects_its_key_with_endpoint_override(self) -> None:
         case = self.case("Enter Demo into Text input, submit the form, and verify Received! appears.")
