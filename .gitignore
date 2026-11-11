@@ -228,3 +228,4 @@ scripts/
 vscode-extension/node_modules/
 vscode-extension/out/
 vscode-extension/*.vsix
+.github/marketplace-publishing.md
